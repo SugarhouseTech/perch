@@ -232,10 +232,18 @@ import Foundation
             .init(pid: 7, at: 2, asks: true),
             .init(pid: 7, at: 3, asks: false),
         ]),
-        Case(name: "another refusing app in between starts it over (current behaviour)", steps: [
+        Case(name: "another refusing app in between does not start it over", steps: [
             .init(pid: 7, at: 0, asks: true, retry: true),
             .init(pid: 8, at: 0.1, asks: true, retry: true),
-            .init(pid: 7, at: 0.2, asks: true, retry: true),
+            .init(pid: 7, at: 0.2, asks: false),
+            .init(pid: 7, at: 1.0, asks: true),
+            .init(pid: 8, at: 1.0, asks: false),
+            .init(pid: 8, at: 1.1, asks: true),
+        ]),
+        Case(name: "a refusal forgotten after a minute starts over", steps: [
+            .init(pid: 7, at: 0, asks: true, retry: true),
+            .init(pid: 7, at: 1, asks: true),
+            .init(pid: 7, at: 61, asks: true, retry: true),
         ]),
     ])
     func sequences(_ c: Case) {
@@ -250,13 +258,9 @@ import Foundation
         }
     }
 
-    /// Two refusing apps switched between quickly are each asked on every switch,
-    /// because the backoff remembers only the last one to refuse. Each ask waits
-    /// on the app, on the main thread, so a fast Cmd-Tab between two such apps
-    /// pays that every time. It is bounded by the user's switching and the
-    /// 50ms burst gap, not a loop, so it is left as it is.
-    @Test(.disabled("known: a refusing app is asked again at once if another refusing app was asked in between"))
-    func twoRefusingAppsAreNotAskedOnEverySwitch() {
+    /// Two refusing apps switched between quickly are not asked on every
+    /// switch: each ask waits on the app, on the main thread.
+    @Test func twoRefusingAppsAreNotAskedOnEverySwitch() {
         var b = RefusalBackoff()
         var asks = 0
         for i in 0..<20 {
@@ -316,18 +320,6 @@ import Foundation
 
 // MARK: - Model tests
 
-/// A small seeded generator, so a failing seed reproduces anywhere.
-private struct SplitMix64: RandomNumberGenerator {
-    var state: UInt64
-    mutating func next() -> UInt64 {
-        state &+= 0x9E37_79B9_7F4A_7C15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
-        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
-        return z ^ (z >> 31)
-    }
-}
-
 private struct Scenario {
     struct Event { var at: TimeInterval; var following: Bool }
     var events: [Event] = []
@@ -343,10 +335,10 @@ private struct Scenario {
 /// Dense bursts down to 1ms apart, moderate runs, long quiet gaps, held buttons
 /// (with reports during them), and a bounded run of recheck requests.
 private func makeScenario(seed: UInt64) -> Scenario {
-    var rng = SplitMix64(state: seed)
+    var rng = SeededGenerator(seed: seed)
     var sc = Scenario()
     var t = Double.random(in: 0...5, using: &rng)
-    func follows(_ rng: inout SplitMix64) -> Bool { Int.random(in: 0..<5, using: &rng) != 0 }
+    func follows(_ rng: inout SeededGenerator) -> Bool { Int.random(in: 0..<5, using: &rng) != 0 }
     for _ in 0..<Int.random(in: 3...8, using: &rng) {
         switch Int.random(in: 0..<4, using: &rng) {
         case 0:
@@ -576,7 +568,7 @@ private func simulate(_ sc: Scenario) -> Trace {
     /// Every refresh in a random stream tries the one refusing frontmost app.
     @Test(arguments: BadgeScheduleModelTests.seeds)
     func aRefusingAppIsAskedAtMostOncePerInterval(_ seed: UInt64) {
-        var rng = SplitMix64(state: seed)
+        var rng = SeededGenerator(seed: seed)
         var b = RefusalBackoff()
         var t = 0.0
         var asks: [TimeInterval] = []
@@ -604,26 +596,25 @@ private func simulate(_ sc: Scenario) -> Trace {
         }
     }
 
-    /// With several refusing apps, an app asked twice with no other refusing
-    /// app asked in between still waits out its interval. (Across a switch it
-    /// does not: see `twoRefusingAppsAreNotAskedOnEverySwitch`.)
+    /// With several refusing apps switched between at random, each still
+    /// waits out its own interval.
     @Test(arguments: BadgeScheduleModelTests.seeds)
-    func eachAppWaitsWhenItIsAskedTwiceInARow(_ seed: UInt64) {
-        var rng = SplitMix64(state: seed)
+    func eachAppWaitsOutItsOwnInterval(_ seed: UInt64) {
+        var rng = SeededGenerator(seed: seed)
         var b = RefusalBackoff()
         var t = 0.0
-        var previous: (pid: Int32, at: TimeInterval, wasFirst: Bool)?
+        var previous: [Int32: (at: TimeInterval, wasFirst: Bool)] = [:]
         for _ in 0..<Int.random(in: 50...400, using: &rng) {
             t += Double.random(in: 0.001...2, using: &rng)
-            // Long runs on one app, with occasional switches.
-            let pid = Int32(Int.random(in: 0..<6, using: &rng) == 0 ? Int.random(in: 1...3, using: &rng) : 1)
+            let pid = Int32(Int.random(in: 1...4, using: &rng))
             guard b.mayAsk(pid: pid, now: t) else { continue }
             let retry = b.refused(pid: pid, now: t)
-            if let p = previous, p.pid == pid {
+            if let p = previous[pid], t - p.at < RefusalBackoff.memory {
                 let wait = p.wasFirst ? RefusalBackoff.firstWait : RefusalBackoff.laterWait
                 #expect(t - p.at >= wait - eps, "seed \(seed): pid \(pid) asked at \(p.at) and \(t)")
+                #expect(!retry, "seed \(seed): pid \(pid) retried twice")
             }
-            previous = (pid, t, retry)
+            previous[pid] = (t, retry)
         }
     }
 }

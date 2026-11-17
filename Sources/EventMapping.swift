@@ -9,12 +9,14 @@ enum EventMapping {
     /// slow trackpad drag reports fractions of a line, and rounding those to
     /// zero would swallow the whole gesture. Sign is kept.
     ///
-    /// Not safe for |delta| beyond Int32 range or NaN: `Int32(_:)` traps there.
-    /// Real devices never report such values, so the behaviour is left as it was.
+    /// A delta that is not a number counts as none, and one too large for the
+    /// event is cut to the largest it can carry: converting either straight
+    /// to Int32 would crash WindowPin on one odd report from a device.
     static func scrollSteps(_ delta: CGFloat) -> Int32 {
-        if delta == 0 { return 0 }
-        let rounded = Int32(delta.rounded())
-        return rounded != 0 ? rounded : (delta > 0 ? 1 : -1)
+        guard !delta.isNaN, delta != 0 else { return 0 }
+        let rounded = min(max(delta.rounded(), CGFloat(Int32.min)), CGFloat(Int32.max))
+        let steps = Int32(rounded)
+        return steps != 0 ? steps : (delta > 0 ? 1 : -1)
     }
 
     /// Only the four modifiers a target app acts on are carried across; caps

@@ -60,9 +60,10 @@ enum ScrollMath {
 
     static let cacheTTL: TimeInterval = 5
 
-    /// A resolved tree is reused while younger than the TTL. A clock that went
-    /// backwards (negative age) counts as fresh, as it always did.
-    static func cacheIsFresh(age: TimeInterval) -> Bool { age < cacheTTL }
+    /// A resolved tree is reused while younger than the TTL. An age below zero
+    /// means the clock was set back, and could keep a stale tree for as long
+    /// as it was set back by, so it counts as stale.
+    static func cacheIsFresh(age: TimeInterval) -> Bool { age >= 0 && age < cacheTTL }
 
     // MARK: - Pending deltas
 

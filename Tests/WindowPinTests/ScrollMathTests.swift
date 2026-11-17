@@ -180,7 +180,7 @@ import Testing
 
     @Test(arguments: [
         (0.0, true), (4.99, true), (5.0, false), (5.01, false), (3600.0, false),
-        (-1.0, true),
+        (-1.0, false), (-3600.0, false),
     ] as [(Double, Bool)])
     func freshnessByAge(age: Double, expected: Bool) {
         #expect(ScrollMath.cacheIsFresh(age: age) == expected)

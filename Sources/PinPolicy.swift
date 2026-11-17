@@ -50,8 +50,10 @@ enum PinPolicy {
     ///
     /// `lookups` maps a window ID to whether it exists: true, false, or nil
     /// when the lookup failed. A failed lookup, or an ID with no entry, says
-    /// nothing either way, so it ends a streak of "gone" answers. Passes that
-    /// are gated off leave the streaks as they were.
+    /// nothing either way, so it ends a streak of "gone" answers. So does a
+    /// pass that is gated off: a window missing from one list before sleep
+    /// and one after waking has not been seen gone twice in a row, only
+    /// twice either side of a time the lists cannot be trusted.
     static func prune(pinned: Set<UInt32>,
                       lookups: [UInt32: Bool?],
                       missingOnce: Set<UInt32>,
@@ -59,7 +61,7 @@ enum PinPolicy {
                       quietUntil: TimeInterval,
                       onConsole: Bool) -> PruneOutcome {
         guard mayPrune(now: now, quietUntil: quietUntil, onConsole: onConsole) else {
-            return PruneOutcome(remove: [], missingOnce: missingOnce)
+            return PruneOutcome(remove: [], missingOnce: [])
         }
         let gone = pinned.filter { (lookups[$0] ?? nil) == false }
         return PruneOutcome(remove: gone.intersection(missingOnce), missingOnce: gone)

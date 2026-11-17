@@ -113,22 +113,28 @@ struct RefusalBackoff {
     /// The one scheduled retry, just after `firstWait`.
     static let retryDelay: TimeInterval = 1.05
 
-    private var pid: Int32 = 0
-    private var askedAt: TimeInterval = 0
-    private var wait: TimeInterval = firstWait
+    /// A refusal this old is forgotten, and the app starts over as if it had
+    /// never refused.
+    static let memory: TimeInterval = 60
+
+    /// Each app that refused, when it was last asked and how long it waits.
+    /// Per app: remembering only the last one meant switching between two
+    /// refusing apps asked each again on every switch, each ask waiting on a
+    /// hung app on the main thread.
+    private var refusals: [Int32: (askedAt: TimeInterval, wait: TimeInterval)] = [:]
 
     func mayAsk(pid: Int32, now: TimeInterval) -> Bool {
-        pid != self.pid || now - askedAt >= wait
+        guard let r = refusals[pid], now - r.askedAt < Self.memory else { return true }
+        return now - r.askedAt >= r.wait
     }
 
     /// The app refused. Returns whether to schedule one retry, so a launching
     /// app is not left unobserved until the next click; a hung one waits for those.
     mutating func refused(pid: Int32, now: TimeInterval) -> Bool {
-        let first = pid != self.pid
-        self.pid = pid
-        askedAt = now
-        wait = first ? Self.firstWait : Self.laterWait
-        return first
+        let earlier = refusals[pid].flatMap { now - $0.askedAt < Self.memory ? $0 : nil }
+        if refusals.count > 32 { refusals = refusals.filter { now - $0.value.askedAt < Self.memory } }
+        refusals[pid] = (now, earlier == nil ? Self.firstWait : Self.laterWait)
+        return earlier == nil
     }
 }
 

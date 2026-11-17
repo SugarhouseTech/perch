@@ -22,9 +22,11 @@ import Testing
         #expect(EventMapping.scrollSteps(-0.0) == 0)
     }
 
-    @Test(.disabled("Int32(_:) traps beyond Int32 range and on NaN/inf; unreachable from real devices, behaviour kept"))
-    func hugeAndNonFiniteDeltasDoNotTrap() {
+    @Test func hugeAndNonFiniteDeltasDoNotTrap() {
         #expect(EventMapping.scrollSteps(1e12) == Int32.max)
+        #expect(EventMapping.scrollSteps(-1e12) == Int32.min)
+        #expect(EventMapping.scrollSteps(.infinity) == Int32.max)
+        #expect(EventMapping.scrollSteps(-.infinity) == Int32.min)
         #expect(EventMapping.scrollSteps(.nan) == 0)
     }
 

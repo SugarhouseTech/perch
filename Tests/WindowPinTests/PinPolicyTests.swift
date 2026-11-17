@@ -67,19 +67,25 @@ private let failed: Bool? = nil
         #expect(out.remove == (pruned ? [1] : []))
     }
 
-    @Test func quietPassLeavesStrikesAsTheyWere() {
+    @Test func aQuietPassStartsTheCountAgain() {
         let out = step(missing, strikes: [1], now: 5, quietUntil: 100)
-        #expect(out.missingOnce == [1])
+        #expect(out.missingOnce.isEmpty)
         #expect(out.remove.isEmpty)
-        // Even a present answer is not acted on while quiet.
-        #expect(step(present, strikes: [1], now: 5, quietUntil: 100).missingOnce == [1])
     }
 
-    @Test func offConsoleLeavesStrikesAsTheyWere() {
+    @Test func anOffConsolePassStartsTheCountAgain() {
         let out = step(missing, strikes: [1], onConsole: false)
         #expect(out.remove.isEmpty)
-        #expect(out.missingOnce == [1])
-        #expect(step(missing, strikes: [], onConsole: false).missingOnce.isEmpty)
+        #expect(out.missingOnce.isEmpty)
+    }
+
+    @Test func aMissBeforeSleepAndOneAfterIsNotTwoInARow() {
+        let before = step(missing, strikes: [], now: 0, quietUntil: 0)
+        #expect(before.missingOnce == [1])
+        let asleep = step(missing, strikes: before.missingOnce, now: 5, quietUntil: 10)
+        let after = step(missing, strikes: asleep.missingOnce, now: 11, quietUntil: 10)
+        #expect(after.remove.isEmpty)
+        #expect(after.missingOnce == [1])
     }
 
     @Test func mayPruneNeedsQuietOverAndConsole() {
@@ -142,8 +148,8 @@ private let failed: Bool? = nil
 @Suite struct PruneModelTests {
 
     /// Drives the policy as the tracker does over random histories and checks
-    /// each pin against a plain count of consecutive "gone" answers, counted
-    /// only over passes that were allowed to act.
+    /// each pin against a plain count of consecutive "gone" answers on passes
+    /// allowed to act, with a gated pass in between starting the count over.
     ///
     /// Window 1 is only ever present or failed. Window 2 answers at random.
     /// Window 3 starts answering "gone" for good at a random pass.
@@ -153,6 +159,7 @@ private let failed: Bool? = nil
             var pinned: Set<UInt32> = [1, 2, 3]
             var strikes: Set<UInt32> = []
             var streak: [UInt32: Int] = [:]
+            /// Acting passes in a row since window 3 left: a gated pass starts it over.
             var actingPassesSinceLeft = 0
             let leavesAt = Int.random(in: 0..<20, using: &rng)
             var now = 0.0
@@ -183,7 +190,10 @@ private let failed: Bool? = nil
                 #expect(out.remove.isSubset(of: pinned), "\(context)")
                 if !acting {
                     #expect(out.remove.isEmpty, "removed while gated, \(context)")
-                    #expect(out.missingOnce == strikes, "strikes moved while gated, \(context)")
+                    #expect(out.missingOnce.isEmpty, "strikes kept through a gated pass, \(context)")
+                    strikes = out.missingOnce
+                    streak = [:]
+                    actingPassesSinceLeft = 0
                     continue
                 }
                 if pass >= leavesAt { actingPassesSinceLeft += 1 }

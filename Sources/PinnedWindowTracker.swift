@@ -307,8 +307,12 @@ final class PinnedWindowTracker {
         // Unknown counts as on the console: only a definite "no" holds back.
         let session = CGSessionCopyCurrentDictionary() as? [String: Any]
         let onConsole = session?[kCGSessionOnConsoleKey as String] as? Bool != false
-        // Skip the lookups too while they would be ignored.
-        guard PinPolicy.mayPrune(now: now, quietUntil: pruneQuietUntil, onConsole: onConsole) else { return }
+        // Skip the lookups too while they would be ignored, and start the
+        // count again afterwards (see `PinPolicy.prune`).
+        guard PinPolicy.mayPrune(now: now, quietUntil: pruneQuietUntil, onConsole: onConsole) else {
+            missingOnce = []
+            return
+        }
         // One small lookup per pin rather than a listing of every window on
         // the system.
         var lookups: [UInt32: Bool?] = [:]
