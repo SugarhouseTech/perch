@@ -345,8 +345,7 @@ class WindowOverlay: NSPanel {
     static func windowBounds(_ windowID: CGWindowID) -> CGRect? {
         guard let info = CGWindowListCopyWindowInfo(.optionIncludingWindow, windowID) as? [[String: Any]],
               let b = info.first?[kCGWindowBounds as String] as? [String: CGFloat] else { return nil }
-        return CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0,
-                      width: b["Width"] ?? 0, height: b["Height"] ?? 0)
+        return OverlayGeometry.bounds(fromWindowList: b)
     }
 
     private var usesAccessibilityScrolling: Bool {
@@ -361,42 +360,16 @@ class WindowOverlay: NSPanel {
     }
 
     /// The point in the target window under a point on the overlay, in global
-    /// top-left coordinates. The overlay shows either the whole window or its
-    /// crop, scaled to the panel: take the fraction across the panel and apply
-    /// it to the part of the window being shown. Fractions rather than offsets
-    /// keep the point right while the two frames briefly disagree mid-resize.
-    ///
-    /// A point off the panel has no matching point and gives nil, unless
-    /// `clamped`, when it is moved to the nearest edge of the panel first.
+    /// top-left coordinates. See `OverlayGeometry.targetPoint`.
     func targetPoint(forLocation loc: NSPoint, clamped: Bool = false) -> CGPoint? {
-        let size = frame.size
-        guard size.width > 0, size.height > 0,
-              let bounds = Self.windowBounds(targetWindowID) else { return nil }
-        var fx = loc.x / size.width
-        var fyFromTop = (size.height - loc.y) / size.height
-        if clamped {
-            fx = min(max(fx, 0), 1)
-            fyFromTop = min(max(fyFromTop, 0), 1)
-        }
-        guard fx >= 0, fx <= 1, fyFromTop >= 0, fyFromTop <= 1 else { return nil }
-        let shown = shownRect(windowSize: bounds.size)
-        return CGPoint(x: bounds.origin.x + shown.minX + fx * shown.width,
-                       y: bounds.origin.y + shown.minY + fyFromTop * shown.height)
+        guard let bounds = Self.windowBounds(targetWindowID) else { return nil }
+        return OverlayGeometry.targetPoint(location: loc, panelSize: frame.size, window: bounds,
+                                           crop: crop, clamped: clamped)
     }
 
     /// The part of the window on show, in points from its top-left corner.
     private func shownRect(windowSize: CGSize) -> CGRect {
-        clampedCrop(windowSize: windowSize) ?? CGRect(origin: .zero, size: windowSize)
-    }
-
-    /// The crop, trimmed to the window as it is now. A window made smaller than
-    /// its crop shows what is left of it; one that loses the area entirely
-    /// keeps the original rectangle, so the pin keeps its size and shows the
-    /// window's edge rather than collapsing to nothing.
-    private func clampedCrop(windowSize: CGSize) -> CGRect? {
-        guard let crop else { return nil }
-        let trimmed = crop.intersection(CGRect(origin: .zero, size: windowSize))
-        return trimmed.isNull || trimmed.width < 1 || trimmed.height < 1 ? crop : trimmed
+        OverlayGeometry.shownRect(crop: crop, windowSize: windowSize)
     }
 
     override func sendEvent(_ event: NSEvent) {
@@ -535,7 +508,7 @@ class WindowOverlay: NSPanel {
             guard let start = moveStart else { return true }
             let pointer = NSEvent.mouseLocation
             let dx = pointer.x - start.pointer.x, dy = pointer.y - start.pointer.y
-            if didMove || hypot(dx, dy) >= Self.moveThreshold {
+            if didMove || OverlayGeometry.isMove(dx: dx, dy: dy, threshold: Self.moveThreshold) {
                 didMove = true
                 let origin = NSPoint(x: start.origin.x + dx, y: start.origin.y + dy)
                 movedOrigin = origin
@@ -568,10 +541,7 @@ class WindowOverlay: NSPanel {
     /// the panel's points, limited to the panel.
     private func selectionRect(to point: NSPoint) -> CGRect? {
         guard let start = selectionStart else { return nil }
-        let panel = CGRect(origin: .zero, size: frame.size)
-        let rect = CGRect(x: min(start.x, point.x), y: min(start.y, point.y),
-                          width: abs(point.x - start.x), height: abs(point.y - start.y))
-        return rect.intersection(panel)
+        return OverlayGeometry.selectionRect(from: start, to: point, panelSize: frame.size)
     }
 
     private func showSelection(to point: NSPoint) {
@@ -598,8 +568,7 @@ class WindowOverlay: NSPanel {
         selectionShade.isHidden = true
         selectionBorder.isHidden = true
 
-        guard let rect, !rect.isNull,
-              rect.width >= Self.minimumCropSide, rect.height >= Self.minimumCropSide else {
+        guard let rect, OverlayGeometry.isCrop(rect, minimumSide: Self.minimumCropSide) else {
             // An option-click, or a selection too small to be one.
             if isCropped { setCrop(nil) }
             return
@@ -607,15 +576,8 @@ class WindowOverlay: NSPanel {
         guard let windowSize = Self.windowBounds(targetWindowID)?.size,
               frame.width > 0, frame.height > 0 else { return }
 
-        // Panel points (bottom-left origin) to window points (top-left
-        // origin), through whatever is on show now, so cropping a cropped pin
-        // narrows it further.
-        let shown = shownRect(windowSize: windowSize)
-        let sx = shown.width / frame.width, sy = shown.height / frame.height
-        let windowRect = CGRect(x: shown.minX + rect.minX * sx,
-                                y: shown.minY + (frame.height - rect.maxY) * sy,
-                                width: rect.width * sx, height: rect.height * sy).integral
-        setCrop(windowRect)
+        setCrop(OverlayGeometry.crop(forSelection: rect, panelSize: frame.size,
+                                     windowSize: windowSize, current: crop))
     }
 
     private func setCrop(_ newCrop: CGRect?) {
@@ -680,24 +642,12 @@ class WindowOverlay: NSPanel {
     }
 
     /// The crop a resize from `old` to `new` asks for, and the panel frame
-    /// that shows it. The crop moves the same edges by the same amount; it
-    /// cannot grow past the window, so anything outside is trimmed, and the
-    /// panel loses the same amount from the same edges.
+    /// that shows it. See `OverlayGeometry.resizedCrop`.
     private func resizedCrop(from old: NSRect, to new: NSRect) -> (CGRect, NSRect)? {
-        guard let crop, old != .zero, old != new,
-              let target = Self.getWindowFrame(windowID: targetWindowID) else { return nil }
-        // Screen points run up, window points run down: the top edge moving
-        // up by d moves the crop's top up the window by d.
-        let proposed = CGRect(x: crop.minX + (new.minX - old.minX),
-                              y: crop.minY + (old.maxY - new.maxY),
-                              width: new.width, height: new.height)
-        var trimmed = proposed.intersection(CGRect(origin: .zero, size: target.size))
-        if trimmed.isNull { trimmed = crop }
-        trimmed = trimmed.integral
-        let panel = NSRect(x: new.minX + (trimmed.minX - proposed.minX),
-                           y: new.minY + (proposed.maxY - trimmed.maxY),
-                           width: trimmed.width, height: trimmed.height)
-        return (trimmed, panel)
+        guard let crop, let target = Self.getWindowFrame(windowID: targetWindowID),
+              let resized = OverlayGeometry.resizedCrop(crop, from: old, to: new, windowSize: target.size)
+        else { return nil }
+        return (resized.crop, resized.panel)
     }
 
     /// AppKit resizes through here. A resize that would take a cropped pin
@@ -722,21 +672,14 @@ class WindowOverlay: NSPanel {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        guard old.width > 0, old.height > 0, old.contains(new) else {
+        guard let rect = OverlayGeometry.contentsRect(current: contentLayer.contentsRect,
+                                                      from: old, to: new) else {
             contentLayer.contents = nil
             displayedFrame = nil
             contentLayer.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
             return
         }
-        // Unit rectangle of `new` within `old`, bottom-left origin, composed
-        // with any part-frame already being shown.
-        let current = contentLayer.contentsRect
-        let ux = (new.minX - old.minX) / old.width
-        let uy = (old.maxY - new.maxY) / old.height
-        let uw = new.width / old.width, uh = new.height / old.height
-        contentLayer.contentsRect = CGRect(x: current.minX + ux * current.width,
-                                           y: current.minY + uy * current.height,
-                                           width: uw * current.width, height: uh * current.height)
+        contentLayer.contentsRect = rect
     }
 
     /// Whether the user is working in the pinned window itself: its app is
@@ -1116,12 +1059,8 @@ class WindowOverlay: NSPanel {
 
     /// Backing scale of the display holding most of `rect`, in screen points.
     private static func screenScale(under rect: NSRect) -> CGFloat? {
-        let best = NSScreen.screens.max { a, b in
-            let ia = a.frame.intersection(rect), ib = b.frame.intersection(rect)
-            return ia.width * ia.height < ib.width * ib.height
-        }
-        guard let best, best.frame.intersects(rect) else { return nil }
-        return best.backingScaleFactor
+        OverlayGeometry.scale(under: rect,
+                              displays: NSScreen.screens.map { ($0.frame, $0.backingScaleFactor) })
     }
 
     private func makeStreamConfig(pixelScale: CGFloat) -> SCStreamConfiguration {
@@ -1129,23 +1068,20 @@ class WindowOverlay: NSPanel {
         // Size the output to the window's native pixels and pin the resolution
         // to .best — .automatic can deliver nominal (1x) frames that end up
         // stretched over a Retina layer, which reads as a slightly blurred pin.
-        config.width = max(Int(frame.width * pixelScale), 1)
-        config.height = max(Int(frame.height * pixelScale), 1)
+        let pixels = OverlayGeometry.outputPixels(panelSize: frame.size, scale: pixelScale)
+        config.width = pixels.width
+        config.height = pixels.height
         // A crop films only that part of the window. For a single-window
         // filter the rectangle is in points from the window's top-left corner.
         if let windowSize = Self.windowBounds(targetWindowID)?.size,
-           let crop = clampedCrop(windowSize: windowSize) {
+           let crop = OverlayGeometry.clampedCrop(crop, windowSize: windowSize) {
             config.sourceRect = crop
         }
         config.captureResolution = .best
         config.scalesToFit = true
         config.showsCursor = false
         config.pixelFormat = kCVPixelFormatType_32BGRA
-        // Frames in flight. Each is a whole window of pixels: about 57 MB for
-        // a 5K-wide window at 2x. Five is smooth headroom for ordinary
-        // windows; a very large one keeps the minimum, as the frame on screen
-        // is held separately and cannot be overwritten.
-        config.queueDepth = config.width * config.height > 6_000_000 ? 3 : 5
+        config.queueDepth = OverlayGeometry.queueDepth(width: config.width, height: config.height)
         config.minimumFrameInterval = CMTime(
             seconds: 1.0 / max(Self.captureRate, 0.1),
             preferredTimescale: 600
@@ -1201,17 +1137,12 @@ class WindowOverlay: NSPanel {
     /// Where the panel goes: over the whole window, over the cropped area of
     /// it, or wherever the user dragged a cropped pin to.
     private func panelFrame(forTarget target: NSRect) -> NSRect {
-        guard let crop = clampedCrop(windowSize: target.size) else { return target }
-        if let movedOrigin { return NSRect(origin: movedOrigin, size: crop.size) }
-        // Window points run down from the top; screen points run up.
-        return NSRect(x: target.minX + crop.minX, y: target.maxY - crop.maxY,
-                      width: crop.width, height: crop.height)
+        OverlayGeometry.panelFrame(target: target, crop: crop, movedOrigin: movedOrigin)
     }
 
-    /// What the stream must be configured for: the filmed area's origin and
-    /// the panel's size, which is the stream's output size in points.
+    /// What the stream must be configured for. See `OverlayGeometry.streamGeometry`.
     private func streamGeometry(windowSize: CGSize, panelSize: CGSize) -> CGRect {
-        CGRect(origin: shownRect(windowSize: windowSize).origin, size: panelSize)
+        OverlayGeometry.streamGeometry(crop: crop, windowSize: windowSize, panelSize: panelSize)
     }
 
     private func currentStreamGeometry() -> CGRect {
@@ -1225,18 +1156,11 @@ class WindowOverlay: NSPanel {
         guard let info = CGWindowListCopyWindowInfo(.optionIncludingWindow, windowID) as? [[String: Any]],
               let entry = info.first,
               let bounds = entry[kCGWindowBounds as String] as? [String: CGFloat] else { return nil }
-
-        let x = bounds["X"] ?? 0
-        let y = bounds["Y"] ?? 0
-        let w = bounds["Width"] ?? 0
-        let h = bounds["Height"] ?? 0
-
         // The screen list can be empty for a moment while displays are being
         // reconfigured; there is no frame to give until it is back.
         guard let screenHeight = NSScreen.screens.first?.frame.height else { return nil }
-        let nsY = screenHeight - y - h
-
-        return NSRect(x: x, y: nsY, width: w, height: h)
+        return OverlayGeometry.appKitFrame(fromWindowList: OverlayGeometry.bounds(fromWindowList: bounds),
+                                           primaryHeight: screenHeight)
     }
 
     deinit {
