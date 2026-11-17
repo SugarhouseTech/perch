@@ -55,14 +55,7 @@ enum EventForwarder {
     /// target app mid-drag with its button held. They go to the nearest point
     /// on the overlay's edge instead.
     private static func mapToTarget(event: NSEvent, overlay: WindowOverlay) -> CGPoint? {
-        let clamped: Bool
-        switch event.type {
-        case .leftMouseDragged, .leftMouseUp, .rightMouseDragged, .rightMouseUp,
-             .otherMouseDragged, .otherMouseUp:
-            clamped = true
-        default:
-            clamped = false
-        }
+        let clamped = EventMapping.clampsToOverlay(event.type)
         return overlay.targetPoint(forLocation: event.locationInWindow, clamped: clamped)
     }
 
@@ -78,7 +71,7 @@ enum EventForwarder {
         cg.flags = cgFlags(event.modifierFlags)
         cg.setIntegerValueField(.mouseEventClickState, value: Int64(max(event.clickCount, 1)))
         cg.setDoubleValueField(.mouseEventPressure, value: Double(event.pressure))
-        if cgType == .otherMouseDown || cgType == .otherMouseUp || cgType == .otherMouseDragged {
+        if EventMapping.carriesButtonNumber(cgType) {
             cg.setIntegerValueField(.mouseEventButtonNumber, value: Int64(event.buttonNumber))
         }
         // A new event carries no movement of its own, so a drag arrived as a
@@ -94,18 +87,7 @@ enum EventForwarder {
     }
 
     private static func mouseType(for event: NSEvent) -> (CGEventType, CGMouseButton)? {
-        switch event.type {
-        case .leftMouseDown: return (.leftMouseDown, .left)
-        case .leftMouseUp: return (.leftMouseUp, .left)
-        case .leftMouseDragged: return (.leftMouseDragged, .left)
-        case .rightMouseDown: return (.rightMouseDown, .right)
-        case .rightMouseUp: return (.rightMouseUp, .right)
-        case .rightMouseDragged: return (.rightMouseDragged, .right)
-        case .otherMouseDown: return (.otherMouseDown, .center)
-        case .otherMouseUp: return (.otherMouseUp, .center)
-        case .otherMouseDragged: return (.otherMouseDragged, .center)
-        default: return nil
-        }
+        EventMapping.mouseType(for: event.type)
     }
 
     // MARK: - Scroll events
@@ -131,21 +113,9 @@ enum EventForwarder {
         cg.postToPid(pid)
     }
 
-    /// Round a scroll delta to whole steps without losing sub-step ticks.
-    private static func scrollSteps(_ delta: CGFloat) -> Int32 {
-        if delta == 0 { return 0 }
-        let rounded = Int32(delta.rounded())
-        return rounded != 0 ? rounded : (delta > 0 ? 1 : -1)
-    }
+    private static func scrollSteps(_ delta: CGFloat) -> Int32 { EventMapping.scrollSteps(delta) }
 
     // MARK: - Modifiers
 
-    private static func cgFlags(_ ns: NSEvent.ModifierFlags) -> CGEventFlags {
-        var cg: CGEventFlags = []
-        if ns.contains(.command) { cg.insert(.maskCommand) }
-        if ns.contains(.control) { cg.insert(.maskControl) }
-        if ns.contains(.option) { cg.insert(.maskAlternate) }
-        if ns.contains(.shift) { cg.insert(.maskShift) }
-        return cg
-    }
+    private static func cgFlags(_ ns: NSEvent.ModifierFlags) -> CGEventFlags { EventMapping.cgFlags(ns) }
 }

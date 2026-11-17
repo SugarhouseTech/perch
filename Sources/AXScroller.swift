@@ -135,7 +135,6 @@ enum AXScroller {
     private struct Resolved { let areas: [Area]; let at: Date }
     private static var cache: [CGWindowID: Resolved] = [:]
     private static var lastLoggedShape: [CGWindowID: String] = [:]
-    private static let cacheTTL: TimeInterval = 5
 
     /// Scroll a pinned window by a wheel delta, without touching focus.
     /// - Parameter at: the pointer, in global top-left coordinates, matching the
@@ -147,7 +146,7 @@ enum AXScroller {
         // A wheel reports lines, about one per notch, where a trackpad
         // reports points, so a wheel crawled at a tenth of the speed. Ten
         // points is the line AppKit's own scroll views use.
-        let deltaY = precise ? rawDeltaY : rawDeltaY * 10
+        let deltaY = ScrollMath.points(fromDelta: rawDeltaY, precise: precise)
         guard deltaY != 0 else { return }
         // A trackpad sends scroll events faster than a read and a set can be
         // made, and a cache refresh holds the queue for over 100 ms. With one
@@ -155,15 +154,15 @@ enum AXScroller {
         // scrolling after the fingers had lifted. Deltas that arrive while
         // the queue is busy are added up and applied together, once.
         queue.async {
-            let queued = pending[windowID]
-            pending[windowID] = Pending(pid: pid, deltaY: (queued?.deltaY ?? 0) + deltaY, point: point)
-            if queued == nil { queue.async { drain(windowID: windowID) } }
+            let folded = ScrollMath.accumulate(queued: pending[windowID], pid: pid,
+                                               deltaY: deltaY, point: point)
+            pending[windowID] = folded.pending
+            if folded.scheduleDrain { queue.async { drain(windowID: windowID) } }
         }
     }
 
     /// Scrolling not yet applied, per window. Touched only on `queue`.
-    private struct Pending { let pid: pid_t; let deltaY: CGFloat; let point: CGPoint }
-    private static var pending: [CGWindowID: Pending] = [:]
+    private static var pending: [CGWindowID: ScrollMath.Pending] = [:]
 
     private static func drain(windowID: CGWindowID) {
         guard let next = pending.removeValue(forKey: windowID),
@@ -173,8 +172,8 @@ enum AXScroller {
             return
         }
         // Scrolling content down means moving the scroll position up.
-        let target = min(1.0, max(0.0, current - Double(next.deltaY) * sensitivity))
-        guard abs(target - current) > 0.000_01 else { return }
+        guard let target = ScrollMath.newValue(current: current, deltaPoints: Double(next.deltaY),
+                                               sensitivity: sensitivity) else { return }
         let err = AXUIElementSetAttributeValue(bar, kAXValueAttribute as CFString,
                                               target as CFNumber)
         if err != .success {
@@ -188,17 +187,13 @@ enum AXScroller {
     /// user is pointing at; the outermost is usually the whole window.
     private static func barUnder(_ point: CGPoint, pid: pid_t, windowID: CGWindowID) -> AXUIElement? {
         guard let areas = resolveAreas(pid: pid, windowID: windowID), !areas.isEmpty else { return nil }
-        let hits = areas.filter { $0.frame.contains(point) }
-        if let best = hits.min(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) {
-            return best.bar
-        }
-        // Pointer outside every scroll area — the toolbar, say. Do nothing
-        // rather than scroll something the user is not pointing at.
-        return nil
+        // Nil when the pointer is outside every area: do nothing rather than
+        // scroll something the user is not pointing at.
+        return ScrollMath.innermostIndex(of: areas.map(\.frame), containing: point).map { areas[$0].bar }
     }
 
     private static func resolveAreas(pid: pid_t, windowID: CGWindowID) -> [Area]? {
-        if let hit = cache[windowID], Date().timeIntervalSince(hit.at) < cacheTTL {
+        if let hit = cache[windowID], ScrollMath.cacheIsFresh(age: Date().timeIntervalSince(hit.at)) {
             return hit.areas
         }
         guard let window = WindowLevelManager.axWindow(pid: pid, windowID: UInt32(windowID)) else {
@@ -265,11 +260,11 @@ enum AXScroller {
     /// 29-second Accessibility walks came from elsewhere in the estate.
     /// Also capped by count: a web page's tree runs to thousands of elements,
     /// and each one asked about is a round trip to an app that may be busy.
-    private static let nodeBudget = 400
+    private static let nodeBudget = ScrollMath.nodeBudget
 
     private static func collectScrollAreas(under element: AXUIElement, depth: Int,
                                            into areas: inout [AXUIElement], budget: inout Int) {
-        guard depth < 12, areas.count < 8, budget > 0 else { return }
+        guard ScrollMath.mayVisit(depth: depth, areasFound: areas.count, budgetLeft: budget) else { return }
         budget -= 1
         if let role = copyString(element, kAXRoleAttribute), role == kAXScrollAreaRole {
             areas.append(element)
