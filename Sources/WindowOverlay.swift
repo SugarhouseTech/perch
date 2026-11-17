@@ -84,20 +84,12 @@ class WindowOverlay: NSPanel {
     private var lastPanelFrame: NSRect = .zero
     private var resizeObserver: NSObjectProtocol?
     private var occlusionObserver: NSObjectProtocol?
-    /// Stops the stream a moment after the pin went behind. Switching to the
-    /// pinned app and straight back is common (a glance, a Cmd-Tab too far),
-    /// and a stream kept for a few seconds is reused instead of being torn
-    /// down and built again each time.
+    /// When the stream runs, and what to do when it will not: every decision
+    /// about it is made there, and carried out here. See `send`.
+    private var life = StreamLifecycle()
+    /// The wait after going behind before the stream stops. See
+    /// `StreamLifecycle.behindGrace`.
     private var behindStop: DispatchWorkItem?
-    private static let behindGrace: TimeInterval = 3
-    /// The pin cannot be seen: it is on another Space, behind a full-screen
-    /// app, or the display is asleep or locked. Its stream and frame sync are
-    /// paused meanwhile, so a pinned video on another Space is not filmed at
-    /// thirty frames a second for nobody.
-    private var isOutOfSight = false
-    /// When the stream was last revived without being asked to by a wake or a
-    /// display change. See `reviveStreamIfNeeded`.
-    private var lastRevive: TimeInterval = -.infinity
     /// A selection smaller than this either way is taken as a click, not a
     /// crop. It is also about as small as a pin can usefully be.
     private static let minimumCropSide: CGFloat = 16
@@ -109,16 +101,6 @@ class WindowOverlay: NSPanel {
     private var didLogFirstFrame = false
     /// Total frames delivered by the stream (diagnostics).
     private(set) var framesReceived = 0
-    /// Restarts and window lookups tried since the pin last came to the front
-    /// or was revived. Capped, so a stream that cannot start, or one that
-    /// starts and promptly dies each time, does not retry once a second for
-    /// as long as the pin is up. `reviveStreamIfNeeded` gives it a fresh set.
-    private var streamRestarts = 0
-    private static let maxStreamRestarts = 5
-    /// A lookup of the window in ScreenCaptureKit's list is under way. One at
-    /// a time: several callers ask for the stream to start, and each used to
-    /// start a lookup of its own.
-    private var isResolving = false
     /// The screenshot taken before the pin is first shown is under way.
     private var isPreparingFirstShow = false
     /// The pin starts out of sight and should be got ready behind its window
@@ -126,10 +108,7 @@ class WindowOverlay: NSPanel {
     private var wantsStaging = false
     /// The pin was removed: nothing may put it back on screen, including a
     /// screenshot that finishes afterwards.
-    private var isRemoved = false
-    /// ScreenCaptureKit refused for want of Screen Recording. Nothing here can
-    /// fix that, and asking again puts the system's prompt back up.
-    private var captureDenied = false
+    private var isRemoved: Bool { life.removed }
 
     /// Called once if capture is refused for want of Screen Recording, so the
     /// tracker can take the pin down. A pin that cannot be filmed is a blank
@@ -137,7 +116,7 @@ class WindowOverlay: NSPanel {
     var onCaptureDenied: (() -> Void)?
 
     /// Whether the overlay is currently in "pinned visible" mode.
-    private(set) var isPinVisible = false
+    var isPinVisible: Bool { life.pinVisible }
 
     /// Maximum stream frame rate (configurable via UserDefaults "captureRate", default 30).
     /// The stream only delivers frames when the window content changes, so a
@@ -228,8 +207,8 @@ class WindowOverlay: NSPanel {
             contentLayer.addSublayer(layer)
         }
 
-        // Resolve the SCWindow asynchronously
-        resolveSCWindow()
+        // Look the window up now, ready for when the pin is first shown.
+        send(.created)
 
         resizeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: self, queue: .main
@@ -243,31 +222,55 @@ class WindowOverlay: NSPanel {
         }
     }
 
+    /// The pin cannot be seen: it is on another Space, behind a full-screen
+    /// app, or the display is asleep or locked. Its stream and frame sync are
+    /// paused meanwhile, so a pinned video on another Space is not filmed at
+    /// thirty frames a second for nobody.
     private func occlusionChanged() {
         let hidden = !occlusionState.contains(.visible)
-        guard hidden != isOutOfSight else { return }
-        isOutOfSight = hidden
-        guard isPinVisible else { return }
-        if hidden {
-            wplog("overlay: out of sight, pausing wid=\(targetWindowID)")
-            stopStream()
-            stopFrameSync()
-        } else {
-            wplog("overlay: back in sight, resuming wid=\(targetWindowID)")
-            syncFrameWithTarget()
-            startStream()
-            startFrameSync()
+        if hidden != life.outOfSight, isPinVisible {
+            wplog("overlay: \(hidden ? "out of sight, pausing" : "back in sight, resuming") wid=\(targetWindowID)")
+        }
+        send(.occlusion(hidden: hidden))
+    }
+
+    // MARK: - Carrying out the stream's lifecycle
+
+    /// Tell the lifecycle what happened, and do what it says.
+    private func send(_ event: StreamLifecycle.Event) {
+        for effect in life.handle(event) { perform(effect) }
+    }
+
+    private func perform(_ effect: StreamLifecycle.Effect) {
+        switch effect {
+        case .startStream: startStream()
+        case .stopStream: stopStream()
+        case .startFrameSync: startFrameSync()
+        case .stopFrameSync: stopFrameSync()
+        case .syncFrame: syncFrameWithTarget()
+        case .resolveWindow: resolveSCWindow()
+        case .scheduleRetry:
+            DispatchQueue.main.asyncAfter(deadline: .now() + StreamLifecycle.retryDelay) { [weak self] in
+                self?.send(.retryFired)
+            }
+        case .scheduleBehindStop:
+            behindStop?.cancel()
+            let stop = DispatchWorkItem { [weak self] in self?.send(.behindGraceElapsed) }
+            behindStop = stop
+            DispatchQueue.main.asyncAfter(deadline: .now() + StreamLifecycle.behindGrace, execute: stop)
+        case .cancelBehindStop:
+            behindStop?.cancel()
+            behindStop = nil
+        case .reportDenied: onCaptureDenied?()
+        case .gaveUp: wplog("overlay: giving up restarting stream wid=\(targetWindowID)")
         }
     }
 
     // MARK: - ScreenCaptureKit window resolution
 
-    private func resolveSCWindow(thenStartStream: Bool = false) {
-        // A lookup already running will do; it is told to go on to start the
-        // stream if this caller needs that.
-        resolveStartsStream = resolveStartsStream || thenStartStream
-        guard !isResolving else { return }
-        isResolving = true
+    /// Look the window up in ScreenCaptureKit's list. One at a time; the
+    /// lifecycle sees to that.
+    private func resolveSCWindow() {
         Task { @MainActor in
             let result: Result<SCShareableContent, Error>
             do {
@@ -277,52 +280,22 @@ class WindowOverlay: NSPanel {
             } catch {
                 result = .failure(error)
             }
-            let startStream = self.resolveStartsStream
-            self.isResolving = false
-            self.resolveStartsStream = false
-
             switch result {
             case .success(let content):
                 if let match = content.windows.first(where: { $0.windowID == targetWindowID }) {
                     self.scWindow = match
                     wplog("overlay: resolved SCWindow for wid=\(targetWindowID) title='\(match.title ?? "")'")
                     self.stageBehindIfReady()
-                    if startStream && self.isPinVisible {
-                        self.startStream()
-                    }
+                    self.send(.resolved(found: true))
                 } else {
                     wplog("overlay: SCWindow NOT FOUND for wid=\(targetWindowID) (checked \(content.windows.count) windows)")
-                    scheduleResolveRetry(thenStartStream: startStream)
+                    self.send(.resolved(found: false))
                 }
             case .failure(let error):
                 wplog("overlay: SCShareableContent error: \(error)")
-                // Without Screen Recording permission every retry fails the same
-                // way, and on macOS 27 each one puts the permission prompt back
-                // up a second after it was dismissed.
-                if (error as NSError).code == SCStreamError.Code.userDeclined.rawValue {
-                    if !captureDenied {
-                        captureDenied = true
-                        onCaptureDenied?()
-                    }
-                    return
-                }
-                scheduleResolveRetry(thenStartStream: startStream)
+                let denied = (error as NSError).code == SCStreamError.Code.userDeclined.rawValue
+                self.send(.resolveFailed(denied: denied))
             }
-        }
-    }
-
-    /// Whether the lookup under way goes on to start the stream.
-    private var resolveStartsStream = false
-
-    /// Retries count against the same limit as stream restarts: a window that
-    /// ScreenCaptureKit never lists would otherwise be looked up, in a full
-    /// listing of every window, once a second for as long as the pin was up.
-    private func scheduleResolveRetry(thenStartStream: Bool) {
-        guard thenStartStream, streamRestarts < Self.maxStreamRestarts else { return }
-        streamRestarts += 1
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            guard let self = self, self.isPinVisible, !self.isOutOfSight, self.stream == nil else { return }
-            self.resolveSCWindow(thenStartStream: true)
         }
     }
 
@@ -723,46 +696,29 @@ class WindowOverlay: NSPanel {
             return
         }
         wplog("overlay: bringToFront wid=\(targetWindowID)")
-        behindStop?.cancel()
-        behindStop = nil
-        isPinVisible = true
-        // Whatever was reported while the pin sat invisible behind its window
-        // no longer holds. Assume it will be seen; if not, the next report
-        // pauses it. Trusting the old answer could leave the pin frozen if
-        // the report of it coming into view never arrived.
-        isOutOfSight = false
-        streamRestarts = 0
-        syncFrameWithTarget()
-
-        if !isVisible {
-            // First time — need to put on screen with content already in place
+        let onScreen = isVisible
+        // Brings the frame up to date first, so the pin is raised where its
+        // window is now, not where it was when it went behind.
+        send(.broughtToFront(onScreen: onScreen))
+        if onScreen {
+            // Already on screen but behind: just raise it. The last streamed
+            // frame is still on the layer, so there is content until fresh
+            // frames land.
+            level = .floating
+            setShown(true)
+            orderFront(nil)
+        } else {
+            // First time: put it on screen with content already in place.
             doInitialShow()
-            return
         }
-
-        // Already on screen but behind — just raise level. The last streamed
-        // frame is still on the layer, so there's content until fresh frames land.
-        level = .floating
-        setShown(true)
-        orderFront(nil)
-        startStream()
-        startFrameSync()
     }
 
     /// Drop overlay behind all normal windows (invisible to user, but still on-screen).
     func sendBehind() {
         guard isPinVisible else { return }
         wplog("overlay: sendBehind wid=\(targetWindowID)")
-        isPinVisible = false
+        send(.sentBehind)
         cancelGesture()
-        stopFrameSync()
-        behindStop?.cancel()
-        let stop = DispatchWorkItem { [weak self] in
-            guard let self, !self.isPinVisible else { return }
-            self.stopStream()
-        }
-        behindStop = stop
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.behindGrace, execute: stop)
         // Not yet shown for the first time: there is nothing to put behind,
         // and ordering it back would put an empty panel on screen.
         guard isVisible else { return }
@@ -800,28 +756,19 @@ class WindowOverlay: NSPanel {
     ///   each a full listing of every window.
     func reviveStreamIfNeeded(force: Bool = false) {
         // Asked afresh rather than trusting the last report.
-        isOutOfSight = isVisible && !occlusionState.contains(.visible)
-        guard isPinVisible, isVisible, stream == nil, !captureDenied, !isOutOfSight else { return }
-        let now = ProcessInfo.processInfo.systemUptime
-        guard force || now - lastRevive >= 30 else { return }
-        lastRevive = now
-        wplog("overlay: reviving stream wid=\(targetWindowID)")
-        streamRestarts = 0
-        startStream()
+        let effects = life.handle(.revive(force: force, now: ProcessInfo.processInfo.systemUptime,
+                                          onScreen: isVisible, hidden: !occlusionState.contains(.visible)))
+        if !effects.isEmpty { wplog("overlay: reviving stream wid=\(targetWindowID)") }
+        effects.forEach(perform)
     }
 
     /// Fully remove overlay from screen (used when unpinning / cleaning up).
     func hideOverlay() {
         wplog("overlay: hideOverlay wid=\(targetWindowID)")
-        isRemoved = true
         wantsStaging = false
-        behindStop?.cancel()
-        behindStop = nil
+        send(.removed)
         AXScroller.forget(windowID: targetWindowID)
-        isPinVisible = false
         cancelGesture()
-        stopStream()
-        stopFrameSync()
         orderOut(nil)
     }
 
@@ -910,16 +857,19 @@ class WindowOverlay: NSPanel {
             context.duration = 0.15
             self.animator().alphaValue = 1
         }
-        startStream()
-        startFrameSync()
+        send(.fadedIn)
     }
 
     // MARK: - Live stream
 
+    /// Create and start a stream for the window. Only ever on the
+    /// lifecycle's word, which knows none is running and the window is known.
     private func startStream() {
-        guard stream == nil, !isOutOfSight else { return }
+        // One stream at a time. The lifecycle never asks for a second; if it
+        // somehow did, the one running stays and it stays counted as running.
+        guard stream == nil else { return }
         guard let scWindow = self.scWindow else {
-            resolveSCWindow(thenStartStream: true)
+            send(.streamSetupFailed)
             return
         }
 
@@ -937,6 +887,7 @@ class WindowOverlay: NSPanel {
             try newStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         } catch {
             wplog("overlay: addStreamOutput failed wid=\(targetWindowID): \(error)")
+            send(.streamSetupFailed)
             return
         }
         stream = newStream
@@ -955,26 +906,10 @@ class WindowOverlay: NSPanel {
             DispatchQueue.main.async {
                 guard let self, self.stream === newStream else { return }
                 self.stream = nil
-                self.restartStreamAfterFailure()
+                self.send(.streamFailed)
             }
         }
         wplog("overlay: stream starting wid=\(targetWindowID) maxFPS=\(Self.captureRate)")
-    }
-
-    /// Try the stream again a moment after it failed to start or stopped on
-    /// its own, rather than leaving the pin on a frozen frame until it next
-    /// goes behind and comes back.
-    private func restartStreamAfterFailure() {
-        guard isPinVisible, !isOutOfSight else { return }
-        guard streamRestarts < Self.maxStreamRestarts else {
-            wplog("overlay: giving up restarting stream wid=\(targetWindowID)")
-            return
-        }
-        streamRestarts += 1
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            guard let self = self, self.isPinVisible, !self.isOutOfSight, self.stream == nil else { return }
-            self.resolveSCWindow(thenStartStream: true)
-        }
     }
 
     private func stopStream() {
@@ -1232,7 +1167,7 @@ extension WindowOverlay: SCStreamOutput, SCStreamDelegate {
             self.stream = nil
             // Window may have closed (tracker will prune it), or capture broke
             // (display reconfigure) — retry while we're still pinned-visible.
-            self.restartStreamAfterFailure()
+            self.send(.streamFailed)
         }
     }
 }
