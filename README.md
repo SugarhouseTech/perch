@@ -7,7 +7,7 @@ chat or a build log in view while you work in something else.
 ![A Preview window pinned over a TextEdit document](docs/images/pinned.png)
 
 This is a fork of [WindowPin by Jorvik Software](https://github.com/PerpetualBeta/WindowPin)
-and has gone its own way. It adds a pin button to window title bars, a setup
+that has gone its own way (see [Credits](#credits)). It adds a pin button to window title bars, a setup
 window for the permissions, and per-app settings for where the button sits.
 It also does nothing at all while nothing is pinned or moving, and keeps most
 of its logic in fast unit tests.
@@ -190,7 +190,7 @@ make run       # builds and opens it
 make install   # copies it to /Applications (set INSTALL_DIR to change)
 ```
 
-A local build has no updater: it never checks for or installs updates.
+WindowPin has no updater. To update, pull and run `make install` again.
 
 To sign builds with your own Developer ID, so permissions survive rebuilds,
 put this in a `local.mk` beside the Makefile (git ignores it):
@@ -203,6 +203,20 @@ LOCAL_BUNDLE_ID := com.example.WindowPin
 To work on WindowPin, start with [AGENTS.md](AGENTS.md): it says where logic
 lives and how it is tested.
 
+## Credits
+
+WindowPin was created by Jonathan Hollin of
+[Jorvik Software](https://jorviksoftware.cc/), who released it into the
+public domain. The heart of the app is their work: live pins, cropping, and
+scrolling pins on macOS 27. So is the shared code in `Sources/JorvikKit`.
+This fork started from the [original](https://github.com/PerpetualBeta/WindowPin)
+in October 2026, and its history is kept here.
+
+WindowPin has no third-party dependencies. It is built on Apple's
+frameworks: ScreenCaptureKit for the live pins, the Accessibility API for
+the pin buttons, scrolling and raising windows, and AppKit and SwiftUI for
+the rest. Its tests use Swift Testing and XCTest.
+
 ## License
 
-Public domain, under [the Unlicense](LICENSE), as the original is.
+Public domain, under [the Unlicense](LICENSE), like the original.

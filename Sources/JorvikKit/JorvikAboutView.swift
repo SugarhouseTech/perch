@@ -2,8 +2,9 @@ import SwiftUI
 
 struct JorvikAboutView: View {
     let appName: String
-    let repoName: String
-    let productPage: String?
+
+    static let sourceURL = URL(string: "https://github.com/SugarhouseTech/perch")!
+    static let originalURL = URL(string: "https://github.com/PerpetualBeta/WindowPin")!
 
     private var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
@@ -39,15 +40,12 @@ struct JorvikAboutView: View {
                     .multilineTextAlignment(.center)
             }
 
-            HStack(spacing: 16) {
-                Link("Source Code", destination: URL(string: "https://github.com/PerpetualBeta/\(repoName)")!)
-                    .font(.caption)
+            Link("Source Code", destination: Self.sourceURL)
+                .font(.caption)
 
-                if let page = productPage {
-                    Link("Product Page", destination: URL(string: "https://jorviksoftware.cc/\(page)")!)
-                        .font(.caption)
-                }
-            }
+            // The fork owes its start to the original, so it says so here too.
+            Link("Based on WindowPin by Jorvik Software", destination: Self.originalURL)
+                .font(.caption)
 
             Button("Close") {
                 NSApp.keyWindow?.close()
@@ -63,7 +61,7 @@ struct JorvikAboutView: View {
     /// object alive after the user closes it; we just re-show.
     private static var existingWindow: NSWindow?
 
-    static func showWindow(appName: String, repoName: String, productPage: String? = nil) {
+    static func showWindow(appName: String) {
         if let window = existingWindow {
             // Whether it was closed or left open on another space, it comes to
             // this one; showing it never switches spaces.
@@ -71,11 +69,7 @@ struct JorvikAboutView: View {
             return
         }
 
-        let controller = NSHostingController(rootView: JorvikAboutView(
-            appName: appName,
-            repoName: repoName,
-            productPage: productPage
-        ))
+        let controller = NSHostingController(rootView: JorvikAboutView(appName: appName))
 
         controller.view.layoutSubtreeIfNeeded()
 

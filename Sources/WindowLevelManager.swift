@@ -5,8 +5,8 @@ import Foundation
 // MARK: - Logging
 
 // Diagnostic logging — off by default, enabled per-machine via:
-//   defaults write cc.jorviksoftware.WindowPin debugLogging -bool YES
-//   defaults delete cc.jorviksoftware.WindowPin debugLogging   # turn off
+//   defaults write tech.sugarhouse.WindowPin debugLogging -bool YES
+//   defaults delete tech.sugarhouse.WindowPin debugLogging   # turn off
 // (A local build made with its own LOCAL_BUNDLE_ID uses that identifier here.)
 // When on, timestamped lines are appended to
 //   ~/Library/Logs/WindowPin/windowpin.log
@@ -29,7 +29,7 @@ let wpLogDirectory: URL = {
     return logs
 }()
 private let wpLogPath = wpLogDirectory.appendingPathComponent("windowpin.log").path
-private let wpLogQueue = DispatchQueue(label: "cc.jorviksoftware.WindowPin.log")
+private let wpLogQueue = DispatchQueue(label: "tech.sugarhouse.WindowPin.log")
 private let wpLogFmt: DateFormatter = {
     let f = DateFormatter()
     f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"

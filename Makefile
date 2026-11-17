@@ -1,52 +1,24 @@
 # WindowPin — pin windows above other apps.
 #
-# Two ways to build:
+#   make test      unit tests
+#   make app       build .build/local/WindowPin.app
+#   make run       build it and open it
+#   make install   build it and copy it to /Applications
+#   make clean     remove the built app
 #
-#   make app / make install / make run
-#       Self-contained local build: SwiftPM, ad-hoc signed, no Sparkle and no
-#       update checks. Needs nothing beyond the Xcode command line tools.
-#
-#   gmake build / gmake release
-#       The signed, notarised release pipeline, delegated to the shared
-#       `release.mk` from PerpetualBeta/jorvik-release (checked out beside this
-#       repo, or wherever JORVIK_RELEASE points). Embeds Sparkle. It still
-#       carries the original app's bundle ID and update feed, so this fork
-#       does not ship from it.
+# Needs nothing beyond the Xcode command line tools.
 
 BUNDLE_NAME      := WindowPin
-BUNDLE_TYPE      := app
 PRODUCT_NAME     := WindowPin.app
-BUNDLE_ID        := cc.jorviksoftware.WindowPin
-BUILD_SYSTEM     := spm
+BUNDLE_ID        := tech.sugarhouse.WindowPin
 SPM_PRODUCT      := WindowPin
-
-PACKAGE_TYPE     := zip
-ALSO_SHIP_PKG    := true
-EMBEDDED_FRAMEWORKS := Sparkle
 ENTITLEMENTS     := WindowPin.entitlements
 
-JORVIK_RELEASE   ?= ../jorvik-release
-
-# Personal settings for the local build (signing identity, bundle ID), kept
-# out of the repo. See the local build section below.
+# Personal settings (signing identity, bundle ID), kept out of the repo.
 -include local.mk
 
-ifneq ($(wildcard $(JORVIK_RELEASE)/release.mk),)
-include $(JORVIK_RELEASE)/release.mk
-else
 .DEFAULT_GOAL := app
-build release:
-	@echo "$@ needs the release pipeline: clone PerpetualBeta/jorvik-release to $(JORVIK_RELEASE)," >&2
-	@echo "or set JORVIK_RELEASE. For a local build without it, use: make app" >&2
-	@exit 1
-clean:
-	rm -rf .build/local
-endif
 
-# MARK: - Local build (no release pipeline, no Sparkle)
-
-# Written as single shell commands so they behave the same whether or not
-# release.mk (which turns on .ONESHELL and bash) is included.
 LOCAL_APP        := .build/local/$(PRODUCT_NAME)
 LOCAL_BUNDLE_ID  ?= $(BUNDLE_ID)
 # "-" signs ad hoc. Set a Developer ID ("Developer ID Application: …") to sign
@@ -64,7 +36,7 @@ INSTALL_DIR      ?= /Applications
 LSREGISTER       := /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 PLISTBUDDY       := /usr/libexec/PlistBuddy
 
-.PHONY: app install run test
+.PHONY: app install run test clean
 
 # Unit tests: the logic, with no windows, permissions or screen capture.
 # Swift Testing runs them in parallel; the older XCTest suites run alongside.
@@ -79,9 +51,6 @@ app:
 	cp "$$BIN" "$(LOCAL_APP)/Contents/MacOS/$(BUNDLE_NAME)" && \
 	cp -R Resources/ "$(LOCAL_APP)/Contents/Resources/" && \
 	cp Info.plist "$(LOCAL_APP)/Contents/Info.plist" && \
-	for KEY in SUFeedURL SUPublicEDKey SUEnableAutomaticChecks SUScheduledCheckInterval; do \
-		$(PLISTBUDDY) -c "Delete :$$KEY" "$(LOCAL_APP)/Contents/Info.plist" 2>/dev/null || true; \
-	done && \
 	$(PLISTBUDDY) -c "Set :CFBundleIdentifier $(LOCAL_BUNDLE_ID)" "$(LOCAL_APP)/Contents/Info.plist" && \
 	codesign --force --sign "$(LOCAL_SIGN_ID)" $(LOCAL_SIGN_FLAGS) --entitlements $(ENTITLEMENTS) "$(LOCAL_APP)" && \
 	codesign --verify --strict "$(LOCAL_APP)" && \
@@ -103,3 +72,6 @@ install: app
 run: app
 	pkill -f "$(CURDIR)/$(LOCAL_APP)/Contents/MacOS/" && sleep 1 || true; \
 	open "$(LOCAL_APP)"
+
+clean:
+	rm -rf .build/local

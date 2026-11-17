@@ -13,9 +13,9 @@ README covers what it does for users.
   Accessibility and Screen Recording grants. An ad hoc rebuild loses them;
   a Developer ID set in `local.mk` keeps them (see the README).
 - The debug log is turned on with
-  `defaults write <bundle id> debugLogging -bool true` and written to
+  `defaults write tech.sugarhouse.WindowPin debugLogging -bool true` and written to
   `~/Library/Logs/WindowPin/windowpin.log`.
-- `defaults write <bundle id> windowSurvey -bool true` records each newly
+- `defaults write tech.sugarhouse.WindowPin windowSurvey -bool true` records each newly
   focused window's kind (role, size, level; no titles) to
   `~/Library/Logs/WindowPin/window-survey.tsv`, for deciding which windows
   should never get a pin button.

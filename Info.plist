@@ -5,7 +5,7 @@
     <key>CFBundleExecutable</key>
     <string>WindowPin</string>
     <key>CFBundleIdentifier</key>
-    <string>cc.jorviksoftware.WindowPin</string>
+    <string>tech.sugarhouse.WindowPin</string>
     <key>CFBundleName</key>
     <string>WindowPin</string>
     <key>CFBundleDisplayName</key>
@@ -24,13 +24,5 @@
     <true/>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
-    <key>SUFeedURL</key>
-    <string>https://jorviksoftware.cc/appcasts/windowpin.xml</string>
-    <key>SUPublicEDKey</key>
-    <string>zVc7rs8EiLmlDAYpgaIItjnHtsCkvyVVub+I0/sSb3Q=</string>
-    <key>SUEnableAutomaticChecks</key>
-    <true/>
-    <key>SUScheduledCheckInterval</key>
-    <integer>86400</integer>
 </dict>
 </plist>

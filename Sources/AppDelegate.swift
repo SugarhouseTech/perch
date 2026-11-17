@@ -3,9 +3,6 @@ import CoreGraphics
 import ApplicationServices
 import SwiftUI
 import ServiceManagement
-#if canImport(Sparkle)
-import Sparkle
-#endif
 
 // MARK: - App Delegate
 
@@ -13,17 +10,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var statusItem: NSStatusItem?
     private let tracker = PinnedWindowTracker()
-
-    // Sparkle is optional: the release build links it, and a build without it
-    // (plain `swift build`, `make app`) simply has no updater.
-    #if canImport(Sparkle)
-    let userDriverDelegate = WindowPinUserDriverDelegate()
-    lazy var sparkleUpdater = SPUStandardUpdaterController(
-        startingUpdater: true,
-        updaterDelegate: nil,
-        userDriverDelegate: userDriverDelegate
-    )
-    #endif
 
     /// The last other app that was active, for the menu to fall back on when
     /// WindowPin itself is in front. Its window is looked up when the menu
@@ -81,9 +67,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         migrateLegacyPillColorKey()
 
         createStatusItem()
-        #if canImport(Sparkle)
-        _ = sparkleUpdater  // touch lazy to start the updater
-        #endif
 
         NotificationCenter.default.addObserver(
             forName: JorvikStatusItemVisibility.didChangeNotification,
@@ -277,12 +260,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
-        #if canImport(Sparkle)
-        let updatesItem = NSMenuItem(title: "Check for Updates\u{2026}", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
-        updatesItem.target = self
-        menu.addItem(updatesItem)
-        #endif
-
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit WindowPin", action: #selector(quit), keyEquivalent: "q"))
     }
@@ -313,19 +290,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - About & Settings
 
-    #if canImport(Sparkle)
-    @objc func checkForUpdates(_ sender: Any?) {
-        NSRunningApplication.current.activate(options: [.activateAllWindows])
-        sparkleUpdater.checkForUpdates(sender)
-    }
-    #endif
-
     @objc private func openAbout() {
-        JorvikAboutView.showWindow(
-            appName: "WindowPin",
-            repoName: "WindowPin",
-            productPage: "utilities/windowpin"
-        )
+        JorvikAboutView.showWindow(appName: "WindowPin")
     }
 
     @objc private func openSettings() {
@@ -550,62 +516,3 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         s.count > max ? String(s.prefix(max)) + "…" : s
     }
 }
-
-#if canImport(Sparkle)
-// MARK: - Sparkle User Driver Delegate
-
-/// Keeps Sparkle's update UI visible across the whole session, including
-/// when the user switches to another app mid-download. See KB:
-/// `conventions/sparkle-integration.md` §6 for the rationale.
-final class WindowPinUserDriverDelegate: NSObject, SPUStandardUserDriverDelegate {
-    private var sessionObserver: NSObjectProtocol?
-    private var elevatedWindows: [(window: NSWindow, originalLevel: NSWindow.Level)] = []
-
-    func standardUserDriverWillShowModalAlert() {
-        bringForward()
-    }
-
-    func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState) {
-        startFocusGuard()
-        bringForward()
-    }
-
-    func standardUserDriverWillFinishUpdateSession() {
-        stopFocusGuard()
-    }
-
-    private func bringForward() {
-        NSRunningApplication.current.activate(options: [.activateAllWindows])
-        elevateAllWindows()
-    }
-
-    private func startFocusGuard() {
-        guard sessionObserver == nil else { return }
-        sessionObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.bringForward()
-        }
-    }
-
-    private func stopFocusGuard() {
-        if let obs = sessionObserver {
-            NotificationCenter.default.removeObserver(obs)
-            sessionObserver = nil
-        }
-        for entry in elevatedWindows {
-            entry.window.level = entry.originalLevel
-        }
-        elevatedWindows.removeAll()
-    }
-
-    private func elevateAllWindows() {
-        for window in NSApp.windows where window.isVisible && window.level == .normal {
-            elevatedWindows.append((window, window.level))
-            window.level = .floating
-        }
-    }
-}
-#endif
