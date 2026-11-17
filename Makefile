@@ -9,7 +9,9 @@
 #   gmake build / gmake release
 #       The signed, notarised release pipeline, delegated to the shared
 #       `release.mk` from PerpetualBeta/jorvik-release (checked out beside this
-#       repo, or wherever JORVIK_RELEASE points). Embeds Sparkle.
+#       repo, or wherever JORVIK_RELEASE points). Embeds Sparkle. It still
+#       carries the original app's bundle ID and update feed, so this fork
+#       does not ship from it.
 
 BUNDLE_NAME      := WindowPin
 BUNDLE_TYPE      := app

@@ -1,245 +1,208 @@
 # WindowPin
 
-A macOS utility that lets you pin any window as a floating, always-on-top overlay — like picture-in-picture for any app. Keep reference material, chat windows, or dashboards visible while you work.
+Pin any window so it floats above everything else, like picture-in-picture
+for any app. A pin is a live copy of the window, so you can keep a chart, a
+chat or a build log in view while you work in something else.
+
+![A Preview window pinned over a TextEdit document](docs/images/pinned.png)
+
+This is a fork of [WindowPin by Jorvik Software](https://github.com/PerpetualBeta/WindowPin)
+and has gone its own way. It adds a pin button to window title bars, a setup
+window for the permissions, and per-app settings for where the button sits.
+It also does nothing at all while nothing is pinned or moving, and keeps most
+of its logic in fast unit tests.
 
 ## Requirements
 
-- macOS 14 (Sonoma) or later
+macOS 14 (Sonoma) or later.
 
-## Installation
+## Install
 
-Two formats on every release — both signed and notarised, pick whichever suits:
-
-- **[Installer (`.pkg`)](https://github.com/PerpetualBeta/WindowPin/releases/latest/download/WindowPin.pkg)** — recommended for first-time installs. Double-click to run; macOS Installer places the app in `/Applications` without quarantine or App Translocation.
-- **[Download (`.zip`)](https://github.com/PerpetualBeta/WindowPin/releases/latest)** — unzip and drag `WindowPin.app` to your Applications folder.
-
-Or install it with [Homebrew](https://brew.sh):
+The fork has no packaged releases yet. Build it from source with the Xcode
+command line tools:
 
 ```sh
-brew install --cask perpetualbeta/jorvik/windowpin
+git clone https://github.com/SugarhouseTech/perch.git
+cd WindowPin
+make install   # builds and copies WindowPin.app to /Applications
 ```
 
-After installation:
+Then open WindowPin. A setup window asks for the two permissions it needs
+(see [Permissions](#permissions)) and shows each one as it is granted.
 
-1. Launch WindowPin — a pin icon appears in your menu bar
-2. Grant the permissions when prompted (see [Permissions](#permissions) below)
+Run it from `/Applications`. On macOS 26 and later, menu bar managers such as
+Bartender only see the icons of apps run from there.
 
-## How It Works
+## Pinning a window
 
-WindowPin mirrors any window as a floating overlay that stays on top of everything else. The overlay is a live ScreenCaptureKit stream — it updates the moment the window's content changes (up to a configurable frame rate) and costs essentially nothing while the content is static.
+Any of these pins the window in use, and does the same again to unpin it:
 
-What you can do with an overlay depends on your macOS version, because macOS 27 changed what one app may do to another's windows.
+- Press `control` `command` `P`. You can change the shortcut in Settings.
+- Click the pin button at the right of the window's title bar.
+- Click the pin icon in the menu bar and choose the window at the top.
 
-**On macOS 27 and later**, you can scroll a pinned window from wherever you are working, and the pane you point at is the one that scrolls. A click takes you to the real window rather than pressing something inside it. See [Interacting with Overlays](#interacting-with-overlays) for what this does and does not cover.
+A badge flashes over the window to confirm. Closed windows are unpinned on
+their own, and **Unpin All** in the menu clears every pin.
 
-**On macOS 14 to 26**, clicks and scrolls are both forwarded to the real window, so you can scroll a pinned document or click a button in it without leaving the app you're working in.
+A pin floats over other apps. When you switch to the pinned window's app, the
+pin drops behind the real window so you work with the app itself, and comes
+back when you switch away.
 
-Keyboard input always stays with your active app on every version — to type into a pinned window, switch to it.
+A pin is a ScreenCaptureKit stream of the window. It updates as the window
+changes, costs almost nothing while the window is still, and stops filming
+while it is hidden.
 
-When you switch to the app that owns a pinned window, the overlay automatically drops behind the real window so you interact with the actual app — not the overlay.
+### The pin button
 
-## Pinning a Window
+The button sits at the right of the title bar, left of any buttons the app
+has put there. It shows on the window in use, so you can pin it, and on pinned
+windows, filled in, to show they are pinned. Either can be turned off in
+Settings.
 
-There are two ways to pin a window:
+Some apps describe their title bars to macOS in a way WindowPin cannot read.
+Where the button lands in the wrong place, add the app under **Pin Button
+Position** in Settings and drag it into place. Discord comes set up already.
+**Only when pinned** keeps the button off that app's windows until they are
+pinned, so a pinned window can still always be told apart.
 
-### Using the keyboard shortcut
+<img src="docs/images/settings.png" alt="WindowPin Settings, with Discord's pin button position set" width="440">
 
-1. Click the window you want to pin to bring it to the front
-2. Press `control` `command` `P`
-3. The window is now pinned — a live overlay appears on top of all other windows
+## Cropping a pin
 
-Press the shortcut again to unpin.
+You can keep just part of a window in view, such as a sports score on a web
+page or the last lines of a long-running task.
 
-### Using the menu
+1. `option`-drag across the pin to select the area to keep.
+2. Release. The pin shrinks to that area and stays live.
 
-1. Click the window you want to pin to bring it to the front
-2. Click the pin icon in the menu bar
-3. The top item shows the frontmost window — click **Pin** next to it
+Then:
 
-## Unpinning
+- **Move it**: drag it anywhere.
+- **Resize it**: drag an edge or corner to show more or less of the window
+  around it, up to the window's own edges.
+- **Crop it again**: `option`-drag inside it.
+- **Show the whole window again**: `option`-click it.
+- **Go to the real window**: click it.
 
-- **Keyboard shortcut**: Bring the pinned window to the front and press `control` `command` `P`
-- **Menu**: Click the pin icon in the menu bar and click **Unpin** next to the window, or choose **Unpin All**
-- **Click the overlay**: Brings the real window to the front and hides the overlay behind it. On macOS 14 to 26 this is `command`-click, because a plain click is forwarded to the window instead
+A cropped pin stays on top while you use the app's other windows, and drops
+behind only while you use the pinned window itself.
 
-Closed windows are automatically unpinned.
+A crop is a fixed area of the window. If the page scrolls or reflows, or the
+window is resized, what you wanted can move out of it; moving the window is
+fine. A crop shows whatever the window shows, so switching a tabbed window to
+another tab changes it. To watch one tab, drag it into its own window and pin
+that. A minimised window stops updating.
 
-## Cropping a Pin
+## Using a pin
 
-You can keep only part of a pinned window in view, such as a sports score on a web page or the last lines of a long-running task.
+macOS 27 changed what one app may do to another's windows, so this depends on
+your version. Keyboard input always stays with the app you are using: to type
+into a pinned window, switch to it.
 
-1. `option`-drag across the pin to select the area you want to keep
-2. Release the mouse button. The pin shrinks to that area and stays on top, still live
-
-You can then:
-
-- **Move it**: drag the cropped pin to anywhere on the screen
-- **Resize it**: drag any edge or corner to show more or less of the window around it. It cannot grow past the edge of the window
-- **Crop it again**: `option`-drag inside it to keep a smaller area
-- **Show the whole window again**: `option`-click it
-- **Go to the real window**: click it
-
-A cropped pin stays on top while you use other windows of the same app, and drops behind only while you use the pinned window itself.
-
-**Things to know:**
-
-- The crop is a fixed area of the window. If the page scrolls, reflows or the window changes size, what you wanted to watch can move out of the crop. Moving the window is fine: the crop goes with it.
-- A crop shows only what the window is showing. If you switch a tabbed window to another tab, the crop stops showing the tab you cropped live: depending on the app, it shows the new tab, or a frozen picture of the old one. To keep watching one tab, drag that tab out into its own window and pin that window instead. It can sit behind your other windows.
-- A minimised window stops updating.
-
-## Interacting with Overlays
-
-### On macOS 27 and later
-
-| Action | Result |
-|--------|--------|
-| Scroll on an overlay | Scrolls the pinned window, under the pointer, without changing which app you are working in |
-| Click an overlay | Takes you to the real window and brings its app forward |
-| `option`-drag an overlay | Crops it to the area you select (see [Cropping a Pin](#cropping-a-pin)) |
-| Type | Keyboard input is never sent to the pin — it stays with your active app |
-| Switch to the pinned window's app | Overlay automatically drops behind the real window |
-| Switch to a different app | Overlay floats back on top |
-
-Scrolling can be turned off in Settings (**Interact through overlays**). Clicking always takes you to the real window.
-
-**What scrolling does not cover.** WindowPin scrolls the pinned window by setting its scroll position through macOS's accessibility interface, which means the app has to offer one. Most Mac apps do, including Finder, Mail, Safari and Preview. Apps built on Electron or Chromium frequently do not, and a window that offers nothing scrollable simply will not scroll. Nothing else about the pin is affected.
-
-**Why clicking cannot press things any more.** On macOS 27 an app may no longer deliver a click into another app's window: the click arrives but the system places it in the corner of the window rather than where you aimed, so it reaches nothing. Every published and unpublished route to do otherwise was measured and none works. Pressing controls through the accessibility interface instead was rejected deliberately — it would activate whatever you happened to point at, which is not the same thing as clicking it.
-
-### On macOS 14 to 26
+### macOS 27 and later
 
 | Action | Result |
-|--------|--------|
-| Click, drag, or right-click an overlay | Forwarded to the real window — buttons, links, and text selection work in place |
-| Scroll on an overlay | Scrolls the real window |
-| `command`-click an overlay | Brings the real window to the front; overlay drops behind it |
-| `option`-drag an overlay | Crops it to the area you select (see [Cropping a Pin](#cropping-a-pin)). A cropped pin is moved by dragging and takes you to the real window when clicked, so clicks on it are not forwarded; scrolling still is |
-| Type | Keyboard input is never forwarded — it stays with your active app |
-| Switch to the pinned window's app | Overlay automatically drops behind the real window |
-| Switch to a different app | Overlay floats back on top |
+|---|---|
+| Scroll on a pin | Scrolls the pinned window under the pointer, if **Interact through overlays** is on (off by default) |
+| Click a pin | Takes you to the real window |
+| `option`-drag a pin | Crops it |
 
-Forwarding can be turned off in Settings (**Interact through overlays**) — a plain click then switches to the real window instead.
+Scrolling works through macOS's accessibility interface, so the app has to
+offer one. Most Mac apps do, including Finder, Mail, Safari and Preview. Apps
+built on Electron or Chromium often do not, and their pins will not scroll.
 
-## Menu Bar Icon
+A pin cannot press buttons on macOS 27. The system now places a click sent
+into another app's window at the window's corner rather than where you aimed,
+so the click reaches nothing. WindowPin takes you to the window instead.
 
-The pin icon in the menu bar changes to reflect the current state:
+### macOS 14 to 26
 
-- **Empty pin**: No windows are pinned
-- **Filled pin**: One or more windows are pinned
+With **Interact through overlays** on (the default here):
 
-Click the icon to access:
+| Action | Result |
+|---|---|
+| Click, drag or right-click a pin | Sent to the real window: buttons, links and text selection work in place |
+| Scroll on a pin | Scrolls the real window |
+| `command`-click a pin | Takes you to the real window |
+| `option`-drag a pin | Crops it. A cropped pin is moved by dragging and takes you to the window when clicked; scrolling still works |
 
-- **Pin/Unpin** the frontmost window
-- A list of all currently **pinned windows** (click to unpin)
-- **Unpin All** — remove all pinned overlays
-- **Settings…** — frame rate, overlay interaction, spaces, shortcut, and permissions
-- **Check for Updates…** — manual Sparkle update check
-- **Quit**
+With it off, any click on a pin takes you to the real window.
 
 ## Settings
 
-### Maximum Frame Rate
+Open **Settings…** from the menu bar icon, or open WindowPin again while it
+is running.
 
-Caps how fast the overlay can update. Frames are only captured when the window's content actually changes, so the default of **30 fps** costs essentially nothing for static content — lower it only if you want to limit CPU use while pinning video or animations.
+- **Pinning**: the shortcut (**Clear** removes it, and pinning still works
+  from the menu and the button), and whether to show the pin button on pinned
+  windows and on the window in use.
+- **Pin Button Position**: per-app button positions, as above.
+- **Overlays**: the maximum frame rate (30 fps by default; a pin is only
+  redrawn when its window changes), **Interact through overlays**, and
+  **Pin to all spaces**, which shows pins on every Mission Control space
+  rather than only the one they were made on.
+- **Permissions**: whether each is granted, with a button to grant it.
+- **Menu Bar** (macOS 14 and 15 only): hide the menu bar icon. On macOS 26
+  and later, use System Settings → Menu Bar instead. With the icon hidden,
+  open WindowPin again to reach Settings.
+- **General**: launch at login, and an optional background behind the menu
+  bar icon for busy wallpapers.
 
-### Interact Through Overlays
-
-On by default.
-
-On **macOS 27 and later** this controls scrolling: on, a scroll on an overlay scrolls the pinned window; off, it does nothing. Clicking takes you to the real window either way.
-
-On **macOS 14 to 26** it controls both: on, clicks and scrolls are forwarded to the pinned window and `command`-click switches to the real window; off, any click on an overlay switches to the real window.
-
-### Pin to All Spaces
-
-When enabled, pinned overlays appear on every Mission Control space. When disabled, they only appear on the space where they were created.
-
-### Custom Keyboard Shortcut
-
-Open **Settings…** from the menu, click **Change…** in the **Pinning** section, then press your desired key combination. The shortcut must include `command`, `control` or `option`, unless it is a function key: F1 to F20 can be used on their own.
-
-**Clear** removes the shortcut entirely. With none bound, nothing is intercepted, and pinning is still available from the menu-bar icon.
-
-### Menu Bar Icon
-
-- **Show icon in menu bar** — hide the menu-bar status icon while WindowPin keeps running; it remains reachable via its keyboard shortcut, if one is bound. If you have cleared that too, re-open WindowPin from Applications to bring the icon back. The choice persists across launches, including login auto-start. *Shown only on macOS 14–15 — on macOS 26 (Tahoe) and later, use System Settings → Menu Bar, which provides this natively.*
-- **Show background pill behind the menu bar icon** (under **General**) — an optional grey background for stronger contrast on busy or wallpaper-tinted menu bars (off by default)
-
-If you've hidden the status icon and want it back, simply re-open WindowPin from your Applications folder — it reappears immediately.
-
-All settings are saved automatically and persist across restarts.
-
-### Updates
-
-Updates are handled by [Sparkle](https://sparkle-project.org). WindowPin checks for new versions automatically once a day in the background; use **Check for Updates…** in the menu for an on-demand check.
+Settings are saved as you change them.
 
 ## Permissions
 
-WindowPin requires two macOS permissions. A setup window asks for both the first time WindowPin runs, shows each one as it is granted, and comes back at launch for as long as either is missing. You can also reach it from the menu (**Finish Setting Up…**) or by opening WindowPin again.
+WindowPin needs two permissions, both in System Settings → Privacy &
+Security. The setup window asks for them on first run, comes back at launch
+while either is missing, and can be opened from the menu with **Finish
+Setting Up…**.
 
-### Accessibility (required)
+- **Accessibility**: for the keyboard shortcut, the pin buttons, scrolling
+  pins and bringing windows to the front.
+- **Screen Recording**: to show a pinned window's contents. WindowPin films
+  only the windows you pin, only while their pins are showing, and saves and
+  sends nothing. macOS sometimes applies this permission only after a
+  restart; the setup window has a button for that.
 
-Needed for the global keyboard shortcut, for scrolling pinned windows, and for bringing windows to the front.
+## Troubleshooting
 
-- Grant in: **System Settings → Privacy & Security → Accessibility**
-- Without this, the keyboard shortcut will not work
+**The shortcut or pin buttons stopped working after a rebuild.** A local
+build is signed ad hoc, and macOS ties the Accessibility grant to that exact
+build. Remove WindowPin from the Accessibility list and add it again, or sign
+your builds with your own certificate (see [Building](#building)).
 
-### Screen Recording (required)
+**A pin is blank.** Grant Screen Recording, then restart WindowPin.
 
-Needed to capture window content for the live overlay.
+**The menu bar icon is missing.** Run WindowPin from `/Applications`, or open
+it again to bring up Settings.
 
-- Grant in: **System Settings → Privacy & Security → Screen Recording**
-- Without this, WindowPin will not pin a window. macOS may only apply the permission when WindowPin restarts; the setup window has a button for that
+**A pin is stuck on screen.** Choose **Unpin All** from the menu, or quit
+WindowPin: every pin goes with it.
 
-## Building from Source
+## Building
 
-WindowPin uses Swift Package Manager. No Xcode project is required.
+WindowPin uses Swift Package Manager; no Xcode project is needed.
 
-For a local build, you need only the Xcode command line tools:
-
-```bash
-git clone https://github.com/PerpetualBeta/WindowPin.git
-cd WindowPin
-make app       # builds .build/local/WindowPin.app, ad-hoc signed
+```sh
+make test      # unit tests, under a second
+make app       # builds .build/local/WindowPin.app, signed ad hoc
 make run       # builds and opens it
 make install   # copies it to /Applications (set INSTALL_DIR to change)
 ```
 
-A local build has no updater: Sparkle is left out, so it never checks for or offers updates.
+A local build has no updater: it never checks for or installs updates.
 
-A local build is ad hoc signed unless you say otherwise. To sign it with your own Developer ID, put your settings in a `local.mk` beside the Makefile. That file is ignored by git:
+To sign builds with your own Developer ID, so permissions survive rebuilds,
+put this in a `local.mk` beside the Makefile (git ignores it):
 
 ```make
 LOCAL_SIGN_ID   := Developer ID Application: Your Name (TEAMID)
 LOCAL_BUNDLE_ID := com.example.WindowPin
 ```
 
-The signed, notarised release build, which embeds Sparkle, is driven by the shared [`release.mk`](https://github.com/PerpetualBeta/jorvik-release) Make include. The Makefile looks for it at `../jorvik-release/`, or wherever `JORVIK_RELEASE` points. It needs GNU Make 4+ (`gmake`, from [Homebrew](https://brew.sh)), because macOS ships 3.81 as `make`.
+To work on WindowPin, start with [AGENTS.md](AGENTS.md): it says where logic
+lives and how it is tested.
 
-```bash
-brew install make   # GNU Make 4+, if you do not already have gmake
-git clone https://github.com/PerpetualBeta/jorvik-release.git
-gmake -C WindowPin build
-```
+## License
 
-## Troubleshooting
-
-### The keyboard shortcut doesn't work
-
-Make sure WindowPin has **Accessibility** permission in System Settings → Privacy & Security → Accessibility. You may need to remove and re-add it if you've rebuilt the app.
-
-### Overlays are blank
-
-Grant **Screen Recording** permission in System Settings → Privacy & Security → Screen Recording. A restart of WindowPin may be required after granting.
-
-### The menu bar icon is missing, or a menu bar manager cannot see it
-
-Run WindowPin from `/Applications`. On macOS 26 and later, menu bar managers such as Bartender do not see the items of apps run from anywhere else. Opening WindowPin again while it is running brings up its window, so it can always be reached without the icon.
-
-### An overlay is stuck on screen
-
-Click the pin icon in the menu bar and choose **Unpin All**, or quit WindowPin entirely — all overlays disappear when the app exits.
-
----
-
-WindowPin is provided by [Jorvik Software](https://jorviksoftware.cc/). If you find it useful, consider [buying me a coffee](https://jorviksoftware.cc/donate).
+Public domain, under [the Unlicense](LICENSE), as the original is.
