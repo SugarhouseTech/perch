@@ -244,7 +244,7 @@ struct StreamLifecycle {
     /// Try again a moment after the stream failed, rather than leaving the
     /// pin on a frozen frame until it next goes behind and comes back.
     private mutating func restartAfterFailure() -> [Effect] {
-        guard pinVisible, !outOfSight else { return [] }
+        guard pinVisible, !outOfSight, !denied else { return [] }
         guard restarts < Self.maxRestarts else { return [.gaveUp] }
         restarts += 1
         return [.scheduleRetry]

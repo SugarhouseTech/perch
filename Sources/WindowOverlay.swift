@@ -691,6 +691,8 @@ class WindowOverlay: NSPanel {
 
     /// Make overlay visible above all windows and start the live stream.
     func bringToFront() {
+        // A removed pin stays removed: raising it would put a blank panel up.
+        guard !isRemoved else { return }
         guard !isPinVisible else {
             wplog("overlay: bringToFront skipped (already front) wid=\(targetWindowID)")
             return
@@ -758,7 +760,7 @@ class WindowOverlay: NSPanel {
         // Asked afresh rather than trusting the last report.
         let effects = life.handle(.revive(force: force, now: ProcessInfo.processInfo.systemUptime,
                                           onScreen: isVisible, hidden: !occlusionState.contains(.visible)))
-        if !effects.isEmpty { wplog("overlay: reviving stream wid=\(targetWindowID)") }
+        if effects.contains(.startStream) { wplog("overlay: reviving stream wid=\(targetWindowID)") }
         effects.forEach(perform)
     }
 
@@ -849,6 +851,7 @@ class WindowOverlay: NSPanel {
     }
 
     private func fadeIn() {
+        guard !isRemoved else { return }
         level = .floating
         alphaValue = 0
         ignoresMouseEvents = false

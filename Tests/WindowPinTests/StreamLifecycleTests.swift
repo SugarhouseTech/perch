@@ -185,6 +185,12 @@ private func showingPin() -> L {
         #expect(life.handle(.resolveFailed(denied: true)) == [])
     }
 
+    @Test func aStreamFailingAfterARefusalIsNotRetried() {
+        var life = showingPin()
+        _ = life.handle(.resolveFailed(denied: true))
+        #expect(life.handle(.streamFailed) == [])
+    }
+
     @Test func aRemovedPinStopsEverythingAndHearsNothingMore() {
         var life = showingPin()
         _ = life.handle(.sentBehind)
