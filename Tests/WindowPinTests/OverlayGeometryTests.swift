@@ -4,19 +4,6 @@ import Testing
 
 private typealias G = OverlayGeometry
 
-/// A small seeded generator, so a failing random case can be run again.
-struct SeededRandom: RandomNumberGenerator {
-    private var state: UInt64
-    init(seed: UInt64) { state = seed &+ 0x9E37_79B9_7F4A_7C15 }
-    mutating func next() -> UInt64 {
-        state = state &+ 0x9E37_79B9_7F4A_7C15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
-        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
-        return z ^ (z >> 31)
-    }
-}
-
 private func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect {
     CGRect(x: x, y: y, width: w, height: h)
 }
@@ -94,7 +81,7 @@ private func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGR
     /// Every point on the panel lands on the part of the window it shows.
     @Test(arguments: 0..<20)
     func everyPointLandsInWhatIsShown(seed: Int) {
-        var rng = SeededRandom(seed: UInt64(seed))
+        var rng = SeededGenerator(seed: UInt64(seed))
         for _ in 0..<200 {
             let window = rect(.random(in: -2000...2000, using: &rng), .random(in: -1000...1000, using: &rng),
                               .random(in: 50...3000, using: &rng), .random(in: 50...2000, using: &rng))
@@ -171,7 +158,7 @@ private func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGR
     /// crop hanging off the window is the part still on it.
     @Test(arguments: 0..<10)
     func theWholePanelIsWhatIsShown(seed: Int) {
-        var rng = SeededRandom(seed: UInt64(seed))
+        var rng = SeededGenerator(seed: UInt64(seed))
         for _ in 0..<200 {
             let window = CGSize(width: CGFloat(Int.random(in: 100...3000, using: &rng)),
                                 height: CGFloat(Int.random(in: 100...2000, using: &rng)))
@@ -242,7 +229,7 @@ private func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGR
     /// crop's size, and a resize that fits is taken exactly.
     @Test(arguments: 0..<20)
     func resizesStayOnTheWindow(seed: Int) {
-        var rng = SeededRandom(seed: UInt64(seed))
+        var rng = SeededGenerator(seed: UInt64(seed))
         for _ in 0..<300 {
             let window = CGSize(width: CGFloat(Int.random(in: 100...3000, using: &rng)),
                                 height: CGFloat(Int.random(in: 100...2000, using: &rng)))

@@ -139,19 +139,6 @@ private let failed: Bool? = nil
         #expect(!PinPolicy.layeringTimerNeeded(pins: [], frontPID: 2))
     }
 }
-
-/// SplitMix64, so a failing sequence reproduces from its seed.
-private struct SeededGenerator: RandomNumberGenerator {
-    var state: UInt64
-    mutating func next() -> UInt64 {
-        state &+= 0x9E37_79B9_7F4A_7C15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
-        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
-        return z ^ (z >> 31)
-    }
-}
-
 @Suite struct PruneModelTests {
 
     /// Drives the policy as the tracker does over random histories and checks
@@ -162,7 +149,7 @@ private struct SeededGenerator: RandomNumberGenerator {
     /// Window 3 starts answering "gone" for good at a random pass.
     @Test func randomHistoriesKeepTheInvariants() {
         for seed in UInt64(1)...3000 {
-            var rng = SeededGenerator(state: seed)
+            var rng = SeededGenerator(seed: seed)
             var pinned: Set<UInt32> = [1, 2, 3]
             var strikes: Set<UInt32> = []
             var streak: [UInt32: Int] = [:]
