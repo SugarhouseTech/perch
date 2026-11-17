@@ -62,7 +62,12 @@ INSTALL_DIR      ?= /Applications
 LSREGISTER       := /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 PLISTBUDDY       := /usr/libexec/PlistBuddy
 
-.PHONY: app install run
+.PHONY: app install run test
+
+# Unit tests: the logic, with no windows, permissions or screen capture.
+# Swift Testing runs them in parallel; the older XCTest suites run alongside.
+test:
+	swift test
 
 app:
 	swift build -c release --product $(SPM_PRODUCT) && \
