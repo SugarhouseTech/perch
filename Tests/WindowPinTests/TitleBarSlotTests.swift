@@ -68,4 +68,104 @@ final class BadgeSpotTests: XCTestCase {
         XCTAssertEqual(BadgeSpot.top(centredOn: -5, side: 22), BadgeSpot.corner.top)
         XCTAssertEqual(BadgeSpot.top(centredOn: .nan, side: 22), BadgeSpot.corner.top)
     }
+
+}
+
+/// When a remembered title-bar answer is asked again.
+final class TitleBarRecheckTests: XCTestCase {
+
+    typealias Finder = TitleBarSlotFinder
+    private let size = CGSize(width: 800, height: 600)
+
+    private func entry(sure: Bool, tries: Int = 1, at: TimeInterval = 100) -> Finder.Entry {
+        Finder.Entry(size: size, spot: .corner, sure: sure, tries: tries, at: at)
+    }
+
+    func testANewWindowIsMeasured() {
+        XCTAssertTrue(Finder.shouldMeasure(nil, now: 0, dragging: false))
+    }
+
+    func testASureAnswerIsKeptAtTheSameSize() {
+        var e = entry(sure: true)
+        e.see(size, at: 1000)
+        XCTAssertFalse(Finder.shouldMeasure(e, now: 1000, dragging: false))
+        XCTAssertFalse(Finder.wantsRecheck(e, now: 1000))
+    }
+
+    func testANewSizeIsMeasuredOnceItHoldsStill() {
+        var e = entry(sure: true)
+        e.see(CGSize(width: 900, height: 600), at: 200)
+        XCTAssertFalse(Finder.shouldMeasure(e, now: 200.05, dragging: false))
+        XCTAssertTrue(Finder.wantsRecheck(e, now: 200.05))
+        XCTAssertTrue(Finder.shouldMeasure(e, now: 200.25, dragging: false))
+        XCTAssertFalse(Finder.shouldMeasure(e, now: 200.25, dragging: true))
+    }
+
+    func testResizingBackToTheMeasuredSizeNeedsNoMeasurement() {
+        var e = entry(sure: true)
+        e.see(CGSize(width: 900, height: 600), at: 200)
+        e.see(size, at: 200.1)
+        XCTAssertFalse(Finder.shouldMeasure(e, now: 300, dragging: false))
+        XCTAssertFalse(Finder.wantsRecheck(e, now: 300))
+    }
+
+    func testAWindowThatNeverStopsResizingIsLeftAlone() {
+        var e = entry(sure: true, at: 100)
+        var t: TimeInterval = 100
+        while t < 110 {
+            t += 1.0 / 60
+            e.see(CGSize(width: 800 + (t * 60).truncatingRemainder(dividingBy: 50), height: 600), at: t)
+            XCTAssertFalse(Finder.shouldMeasure(e, now: t, dragging: false))
+        }
+        XCTAssertFalse(Finder.wantsRecheck(e, now: t), "watching should stop after a few seconds")
+    }
+
+    func testAnAnswerThatSawNoControlIsAskedAgainAfterAWait() {
+        // Electron's tree is empty on the first question and filled in a moment later.
+        let first = entry(sure: false, tries: 1, at: 100)
+        XCTAssertFalse(Finder.shouldMeasure(first, now: 100.1, dragging: false))
+        XCTAssertTrue(Finder.shouldMeasure(first, now: 100.35, dragging: false))
+        XCTAssertTrue(Finder.wantsRecheck(first, now: 100.1))
+    }
+
+    func testTheWaitGrowsAndThenGivesUp() {
+        XCTAssertLessThan(Finder.recheckDelay(afterTries: 1), Finder.recheckDelay(afterTries: 2))
+        let last = entry(sure: false, tries: Finder.maxTries, at: 100)
+        XCTAssertFalse(Finder.shouldMeasure(last, now: 10_000, dragging: false))
+        XCTAssertFalse(Finder.wantsRecheck(last, now: 100))
+    }
+
+    /// Model check: drive the policy with random sizes, timings and answers,
+    /// as the controller would, and bound how often an app is asked.
+    func testRandomScheduleNeverAsksOftenOrForever() {
+        var rng = SystemRandomNumberGenerator()
+        for _ in 0..<300 {
+            var e: Finder.Entry?
+            var t: TimeInterval = 0
+            var measures: [TimeInterval] = []
+            var lastSize = CGSize(width: 800, height: 600)
+            var recheckUntil: TimeInterval = 0
+            while t < 60 {
+                // Ticks: 10 Hz while following, otherwise sparse events.
+                t += t < recheckUntil ? 0.1 : Double.random(in: 0.01...5, using: &rng)
+                if Int.random(in: 0..<10, using: &rng) == 0 {
+                    lastSize = CGSize(width: CGFloat(Int.random(in: 400...1600, using: &rng)), height: 600)
+                }
+                let dragging = Int.random(in: 0..<8, using: &rng) == 0
+                e?.see(lastSize, at: t)
+                if Finder.shouldMeasure(e, now: t, dragging: dragging) {
+                    let tries = e.map { $0.size == lastSize ? $0.tries + 1 : 1 } ?? 1
+                    let sure = Int.random(in: 0..<3, using: &rng) == 0
+                    e = Finder.Entry(size: lastSize, spot: .corner, sure: sure, tries: tries, at: t)
+                    measures.append(t)
+                    XCTAssertLessThanOrEqual(tries, Finder.maxTries)
+                }
+                if let e, Finder.wantsRecheck(e, now: t) { recheckUntil = t + 0.5 }
+            }
+            // Never two measurements closer than the settle time or first recheck delay.
+            for (a, b) in zip(measures, measures.dropFirst()) {
+                XCTAssertGreaterThanOrEqual(b - a, min(Finder.settle, Finder.recheckDelay(afterTries: 1)) - 1e-9)
+            }
+        }
+    }
 }

@@ -73,14 +73,79 @@ enum TitleBarSlot {
 
 /// Finds and remembers a clear spot for the badge on each window, asking the
 /// window's app through Accessibility.
+///
+/// An answer that saw no control at all is only provisional. Chromium and
+/// Electron apps (Chrome, Discord, Slack, VS Code) build the accessibility
+/// tree for their web content lazily: the first question only wakes it, and
+/// the buttons appear a moment later. Until then every point along the title
+/// bar looks free. So such an answer is asked again a few times, further apart
+/// each time, before it is believed. A slow app that times out gets the same
+/// treatment.
 final class TitleBarSlotFinder {
 
-    private struct Entry {
+    struct Entry {
+        /// The size measured, and the answer for it.
         let size: CGSize
         let spot: BadgeSpot
+        /// The app named at least one control and answered every question:
+        /// the spot is final for this size.
+        let sure: Bool
+        /// How many times this size has been measured.
+        let tries: Int
+        let measuredAt: TimeInterval
+        var usedAt: TimeInterval
+        /// The size the window last had, and since when. A window that has
+        /// not held still is not measured yet.
+        var seenSize: CGSize
+        var seenSince: TimeInterval
+        /// When the window first left the measured size, if it has.
+        var driftSince: TimeInterval?
+
+        init(size: CGSize, spot: BadgeSpot, sure: Bool, tries: Int, at now: TimeInterval) {
+            self.size = size
+            self.spot = spot
+            self.sure = sure
+            self.tries = tries
+            measuredAt = now
+            usedAt = now
+            seenSize = size
+            seenSince = now
+        }
+
+        /// Note the window's current size.
+        mutating func see(_ current: CGSize, at now: TimeInterval) {
+            usedAt = now
+            if current != seenSize {
+                seenSize = current
+                seenSince = now
+            }
+            if current == size {
+                driftSince = nil
+            } else if driftSince == nil {
+                driftSince = now
+            }
+        }
     }
 
+    /// How many times a provisional answer is asked again before it is kept.
+    static let maxTries = 4
+    /// Remember this many windows; the least recently used is forgotten.
+    static let capacity = 32
+    /// A resized window is measured once its size has held this long, so an
+    /// animated resize (a window manager, zoom, tiling) is measured once at
+    /// the end rather than at every step.
+    static let settle: TimeInterval = 0.2
+    /// A window still changing size after this long is left until it stops,
+    /// rather than kept under watch.
+    static let driftWatch: TimeInterval = 3
+    /// The most time one measurement may spend asking an app, on the main thread.
+    static let budget: TimeInterval = 0.25
+
     private var cache: [UInt32: Entry] = [:]
+
+    /// Set while placing badges when a window's answer is not settled yet, so
+    /// the caller keeps checking for a moment longer.
+    private(set) var recheckWanted = false
 
     /// Roles a click is meant for. Covering one of these takes its clicks.
     private static let controls: Set<String> = [
@@ -96,34 +161,68 @@ final class TitleBarSlotFinder {
         kAXWindowRole, kAXToolbarRole, kAXApplicationRole, kAXSheetRole, kAXDrawerRole,
     ]
 
-    /// Where on the window to place the badge.
+    /// Wait this long after a provisional answer before asking again.
+    static func recheckDelay(afterTries tries: Int) -> TimeInterval {
+        0.3 * pow(2, Double(max(tries - 1, 0)))
+    }
+
+    /// Whether to ask the app again, given what is known (already updated
+    /// with the window's current size).
     ///
-    /// Asking is done once per window size, so moving a window costs nothing.
     /// While a mouse button is held, a window being resized keeps its last
-    /// answer instead of being asked again on every step of the drag.
+    /// answer instead of being asked on every step of the drag.
+    static func shouldMeasure(_ entry: Entry?, now: TimeInterval, dragging: Bool) -> Bool {
+        guard let entry else { return true }
+        if dragging { return false }
+        if entry.seenSize != entry.size { return now - entry.seenSince >= settle }
+        if entry.sure || entry.tries >= maxTries { return false }
+        return now - entry.measuredAt >= recheckDelay(afterTries: entry.tries)
+    }
+
+    /// Whether the answer will change by itself soon, so it is worth checking
+    /// again shortly even if nothing else happens.
+    static func wantsRecheck(_ entry: Entry, now: TimeInterval) -> Bool {
+        if let drift = entry.driftSince { return now - drift < driftWatch }
+        return !entry.sure && entry.tries < maxTries
+    }
+
+    /// Clear `recheckWanted` before placing a round of badges.
+    func beginPass() { recheckWanted = false }
+
+    /// Where on the window to place the badge.
     func spot(pid: pid_t, windowID: UInt32, frame: NSRect, side: CGFloat) -> BadgeSpot {
-        if let entry = cache[windowID] {
-            if entry.size == frame.size || NSEvent.pressedMouseButtons != 0 { return entry.spot }
+        let now = ProcessInfo.processInfo.systemUptime
+        var old = cache[windowID]
+        old?.see(frame.size, at: now)
+        var entry: Entry
+        if Self.shouldMeasure(old, now: now, dragging: NSEvent.pressedMouseButtons != 0) {
+            let tries = old.map { $0.size == frame.size ? $0.tries + 1 : 1 } ?? 1
+            let (spot, sure) = measure(pid: pid, windowID: windowID, frame: frame, side: side, attempt: tries)
+            entry = Entry(size: frame.size, spot: spot, sure: sure, tries: tries, at: now)
+            if old == nil, cache.count >= Self.capacity,
+               let oldest = cache.min(by: { $0.value.usedAt < $1.value.usedAt })?.key {
+                cache[oldest] = nil
+            }
+        } else {
+            entry = old!
         }
-        // A failure is remembered too: an app that is not answering should not
-        // be asked again ten times a second.
-        let spot = measure(pid: pid, windowID: windowID, frame: frame, side: side)
-        cache[windowID] = Entry(size: frame.size, spot: spot)
-        return spot
+        cache[windowID] = entry
+        if Self.wantsRecheck(entry, now: now) { recheckWanted = true }
+        return entry.spot
     }
 
     /// The last answer for a window, without asking again.
+    /// Counts as a use, so a pin showing its floating copy for hours keeps
+    /// its answer while other windows come and go.
     func knownSpot(windowID: UInt32) -> (size: CGSize, spot: BadgeSpot)? {
-        cache[windowID].map { ($0.size, $0.spot) }
+        cache[windowID]?.usedAt = ProcessInfo.processInfo.systemUptime
+        return cache[windowID].map { ($0.size, $0.spot) }
     }
 
-    /// Drop what is known about every window but these.
-    func retain(_ windowIDs: Set<UInt32>) {
-        cache = cache.filter { windowIDs.contains($0.key) }
-    }
-
-    private func measure(pid: pid_t, windowID: UInt32, frame: NSRect, side: CGFloat) -> BadgeSpot {
-        guard let primary = NSScreen.screens.first else { return .corner }
+    /// Ask the app where the badge can go, and whether the answer can be trusted.
+    private func measure(pid: pid_t, windowID: UInt32, frame: NSRect, side: CGFloat,
+                         attempt: Int) -> (BadgeSpot, sure: Bool) {
+        guard let primary = NSScreen.screens.first else { return (.corner, true) }
         let app = AXUIElementCreateApplication(pid)
         // On the main thread: never wait long on a slow app.
         AXUIElementSetMessagingTimeout(app, 0.1)
@@ -134,14 +233,24 @@ final class TitleBarSlotFinder {
         // title bar's contents are centred on, however tall the bar is: a plain
         // title bar, a tall unified toolbar, a browser's tab strip.
         var top = BadgeSpot.corner.top
-        if let window = WindowLevelManager.axWindow(pid: pid, windowID: windowID),
+        let deadline = ProcessInfo.processInfo.systemUptime + Self.budget
+        if let window = WindowLevelManager.axWindow(pid: pid, windowID: windowID, timeout: 0.1),
            let mid = Self.closeButtonMidY(of: window) {
             top = BadgeSpot.top(centredOn: mid - windowTop, side: side)
         }
         let y = Float(windowTop + top + side / 2)
         var log: [String] = []
+        var failed = false
+        var seen: Set<String> = []
 
         let inset = TitleBarSlot.inset(side: side, width: frame.width) { fromRight in
+            // A slow app is not allowed to hold up the main thread: an answer
+            // that ran out of time counts as none, and is asked again later.
+            guard ProcessInfo.processInfo.systemUptime < deadline else {
+                log.append("\(Int(fromRight)):budget")
+                failed = true
+                return .failed
+            }
             let x = Float(frame.maxX - fromRight)
             var hit: AXUIElement?
             let err = AXUIElementCopyElementAtPosition(app, x, y, &hit)
@@ -149,17 +258,21 @@ final class TitleBarSlotFinder {
             case .success:
                 guard let hit else { return .free }
                 let (probe, role) = Self.classify(hit)
-                if probe == .taken { log.append("\(Int(fromRight)):\(role)") }
+                if probe == .taken { log.append("\(Int(fromRight)):\(role)") } else { seen.insert(role) }
                 return probe
             case .noValue, .attributeUnsupported:
                 return .free
             default:
                 log.append("\(Int(fromRight)):err\(err.rawValue)")
+                failed = true
                 return .failed
             }
         }
-        wplog("titlebar slot wid=\(windowID) pid=\(pid) width=\(Int(frame.width)) top=\(Int(top)) inset=\(inset.map { "\(Int($0))" } ?? "default") taken=[\(log.joined(separator: " "))]")
-        return BadgeSpot(right: inset ?? TitleBarSlot.margin, top: top)
+        // Seeing no control at all is what an app whose tree is not built yet
+        // looks like, as much as an empty title bar.
+        let sure = !failed && !log.isEmpty
+        wplog("titlebar slot wid=\(windowID) pid=\(pid) try=\(attempt) width=\(Int(frame.width)) top=\(Int(top)) inset=\(inset.map { "\(Int($0))" } ?? "default") sure=\(sure) taken=[\(log.joined(separator: " "))] free=[\(seen.sorted().joined(separator: " "))]")
+        return (BadgeSpot(right: inset ?? TitleBarSlot.margin, top: top), sure)
     }
 
     /// The vertical middle of a window's close button, in screen coordinates.
@@ -167,6 +280,7 @@ final class TitleBarSlotFinder {
         var ref: AnyObject?
         guard AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &ref) == .success,
               let button = WindowLevelManager.element(from: ref) else { return nil }
+        AXUIElementSetMessagingTimeout(button, 0.1)
         var pos: AnyObject?, size: AnyObject?
         guard AXUIElementCopyAttributeValue(button, kAXPositionAttribute as CFString, &pos) == .success,
               AXUIElementCopyAttributeValue(button, kAXSizeAttribute as CFString, &size) == .success,
@@ -180,7 +294,11 @@ final class TitleBarSlotFinder {
     private static func classify(_ element: AXUIElement) -> (TitleBarSlot.Probe, String) {
         var current: AXUIElement? = element
         for _ in 0..<5 {
-            guard let el = current, let role = string(el, kAXRoleAttribute) else { break }
+            guard let el = current else { break }
+            // Elements an app hands back carry the default wait of several
+            // seconds, not the app's.
+            AXUIElementSetMessagingTimeout(el, 0.1)
+            guard let role = string(el, kAXRoleAttribute) else { break }
             if controls.contains(role) { return (.taken, role) }
             if surfaces.contains(role) { return (.free, role) }
             var parent: AnyObject?
