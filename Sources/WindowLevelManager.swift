@@ -70,6 +70,8 @@ enum WindowLevelManager {
     @discardableResult
     static func raiseWindow(pid: pid_t, windowID: UInt32, activate: Bool) -> Bool {
         let app = AXUIElementCreateApplication(pid)
+        // On the main thread, asking each of the app's windows in turn.
+        AXUIElementSetMessagingTimeout(app, 0.25)
 
         // Check if we're trusted for accessibility
         let trusted = AXIsProcessTrusted()
@@ -85,6 +87,7 @@ enum WindowLevelManager {
         // Find the specific window by matching against CGWindowList
         // We need to match AX windows to CGWindowIDs
         for axWindow in windows {
+            AXUIElementSetMessagingTimeout(axWindow, 0.25)
             // Try to raise each window — the right one will match
             // First, check if this AX window corresponds to our target windowID
             // by comparing position/size with CGWindowList data
@@ -115,12 +118,19 @@ enum WindowLevelManager {
     /// The Accessibility element for a window, found the same way `raiseWindow`
     /// finds it. Exposed so the AX scroll probe can address the same window the
     /// overlay is mirroring, rather than guessing.
-    static func axWindow(pid: pid_t, windowID: UInt32) -> AXUIElement? {
+    ///
+    /// - Parameter timeout: the longest to wait on the app for each answer.
+    ///   Without one, the default applies.
+    static func axWindow(pid: pid_t, windowID: UInt32, timeout: Float? = nil) -> AXUIElement? {
         let app = AXUIElementCreateApplication(pid)
+        if let timeout { AXUIElementSetMessagingTimeout(app, timeout) }
         var windowsRef: AnyObject?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsRef) == .success,
               let windows = windowsRef as? [AXUIElement] else { return nil }
-        return windows.first { matchesWindowID(axWindow: $0, pid: pid, targetWID: windowID) }
+        return windows.first {
+            if let timeout { AXUIElementSetMessagingTimeout($0, timeout) }
+            return matchesWindowID(axWindow: $0, pid: pid, targetWID: windowID)
+        }
     }
 
     /// The window number of an Accessibility window, or nil if the app will

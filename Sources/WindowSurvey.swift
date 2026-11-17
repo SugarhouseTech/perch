@@ -30,6 +30,7 @@ enum WindowSurvey {
     /// Windows already written: by window number, or for a window that will
     /// not give its number, by app and kind.
     private static var seen: Set<String> = []
+    private static var unnumberedAskedAt: [pid_t: TimeInterval] = [:]
     private static let columns = [
         "time", "app", "owner", "role", "subrole", "modal", "size", "layer",
         "close", "titled", "would_hide", "badge_size_ok",
@@ -41,6 +42,15 @@ enum WindowSurvey {
     static func record(_ window: AXUIElement, windowID: UInt32?, app: NSRunningApplication) {
         guard isOn else { return }
         if let windowID, seen.contains("w\(windowID)") { return }
+        // A window with no number cannot be told apart from the app's others
+        // without asking it, several times a second. Ask about such an app at
+        // most once a minute.
+        if windowID == nil {
+            let now = ProcessInfo.processInfo.systemUptime
+            if let last = unnumberedAskedAt[app.processIdentifier], now - last < 60 { return }
+            unnumberedAskedAt[app.processIdentifier] = now
+            if unnumberedAskedAt.count > 500 { unnumberedAskedAt.removeAll() }
+        }
         let role = string(window, kAXRoleAttribute) ?? "-"
         let subrole = string(window, kAXSubroleAttribute) ?? "-"
         let appID = app.bundleIdentifier ?? app.localizedName ?? "-"

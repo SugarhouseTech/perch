@@ -55,6 +55,19 @@ final class PinBadgeController {
     /// Accessibility notifications from the active app.
     private var appObserver: AXObserver?
     private var observedPID: pid_t = 0
+    /// An app that would not take notifications, and when it was last asked.
+    /// Asking a hung app waits on it, so it is asked again only now and then.
+    private var refusedPID: pid_t = 0
+    private var refusedAt: TimeInterval = 0
+    /// How long until a refusing app is asked again: a second the first time,
+    /// as an app just launched often answers a moment later, then five.
+    private var refusedWait: TimeInterval = 1
+    /// When the last refresh ran, and whether one was put off since. An app
+    /// can report a moved or resized window dozens of times a second, during
+    /// an animation or a fight between window managers; a burst like that is
+    /// handled at the follow timer's pace instead of once per report.
+    private var lastRefresh: TimeInterval = 0
+    private var refreshPending = false
 
     init(tracker: PinnedWindowTracker, toggle: @escaping (ForeignWindow) -> Void) {
         self.tracker = tracker
@@ -106,22 +119,26 @@ final class PinBadgeController {
     ///   is followed only while the button is held. If the click did move a
     ///   window, the app says so, and that report is followed as usual.
     func refresh(following: Bool = true) {
+        if following { followUntil = max(followUntil, Date().addingTimeInterval(1)) }
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastRefresh < 0.05 {
+            // Part of a burst: the next follow tick picks it up.
+            refreshPending = true
+            followUntil = max(followUntil, Date().addingTimeInterval(0.2))
+            startFollowing()
+            return
+        }
+        lastRefresh = now
+        refreshPending = false
         observeFrontmostApp()
         readFocusedWindow()
         update()
 
-        if following { followUntil = Date().addingTimeInterval(1) }
-        if followTimer == nil, following || NSEvent.pressedMouseButtons != 0 {
-            followTicks = 0
-            // Common modes, so it keeps up during a drag.
-            let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.follow() }
-            RunLoop.main.add(t, forMode: .common)
-            followTimer = t
-        }
+        if following || NSEvent.pressedMouseButtons != 0 { startFollowing() }
 
         let anyPinned = Self.showsPinned && !tracker.pinnedWindows.isEmpty
         if anyPinned, pinnedTimer == nil {
-            let t = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in self?.update() }
+            let t = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in self?.update(restack: false) }
             t.tolerance = 0.1
             RunLoop.main.add(t, forMode: .common)
             pinnedTimer = t
@@ -131,6 +148,15 @@ final class PinBadgeController {
         }
     }
 
+    private func startFollowing() {
+        guard followTimer == nil else { return }
+        followTicks = 0
+        // Common modes, so it keeps up during a drag.
+        let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.follow() }
+        RunLoop.main.add(t, forMode: .common)
+        followTimer = t
+    }
+
     private func follow() {
         guard Date() < followUntil || NSEvent.pressedMouseButtons != 0 else {
             followTimer?.invalidate()
@@ -138,15 +164,32 @@ final class PinBadgeController {
             return
         }
         followTicks += 1
-        // Asking the front app for its focused window is an Accessibility call,
-        // so do it a few times a second rather than every tick.
-        if followTicks % 3 == 0 { readFocusedWindow() }
+        if refreshPending {
+            refreshPending = false
+            lastRefresh = ProcessInfo.processInfo.systemUptime
+            observeFrontmostApp()
+            readFocusedWindow()
+        } else if followTicks % 3 == 0 {
+            // Asking the front app for its focused window is an Accessibility
+            // call, so do it a few times a second rather than every tick.
+            readFocusedWindow()
+        }
         update()
     }
 
-    private func update() {
-        updatePinnedBadges()
+    /// - Parameter restack: put each badge back above its window even if
+    ///   nothing about it changed. Done after anything that may have raised a
+    ///   window over it; the steady timer for pins only moves badges.
+    private func update(restack: Bool = true) {
+        slots.beginPass()
+        updatePinnedBadges(restack: restack)
         updateFocusedBadge()
+        // A window's app may not have described its title bar yet: keep
+        // checking until it has, or the finder gives up on it.
+        if slots.recheckWanted {
+            followUntil = max(followUntil, Date().addingTimeInterval(0.5))
+            startFollowing()
+        }
     }
 
     private func readFocusedWindow() {
@@ -165,6 +208,8 @@ final class PinBadgeController {
         guard pid != observedPID else { return }
         stopObservingApp()
         guard pid != ProcessInfo.processInfo.processIdentifier else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard pid != refusedPID || now - refusedAt >= refusedWait else { return }
 
         var created: AXObserver?
         guard AXObserverCreate(pid, badgeAXCallback, &created) == .success, let observer = created else { return }
@@ -181,8 +226,24 @@ final class PinBadgeController {
             }
         }
         // Nothing registered: no Accessibility yet, or the app is not
-        // answering. Leave it unrecorded so the next refresh tries again.
-        guard registered else { return }
+        // answering. Leave it unrecorded so a later refresh tries again, but
+        // not for a few seconds: each try waits on the app.
+        guard registered else {
+            let first = pid != refusedPID
+            refusedPID = pid
+            refusedAt = now
+            refusedWait = first ? 1 : 5
+            // Once, so a launching app is not left unobserved until the next
+            // click or switch; a hung one waits for those.
+            if first {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) { [weak self] in
+                    guard let self, self.observedPID == 0,
+                          NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+                    self.refresh(following: false)
+                }
+            }
+            return
+        }
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
         appObserver = observer
         observedPID = pid
@@ -196,15 +257,13 @@ final class PinBadgeController {
         observedPID = 0
     }
 
-    private func updatePinnedBadges() {
+    private func updatePinnedBadges(restack: Bool) {
         let pinned = Self.showsPinned ? tracker.pinnedWindows : []
         let ids = Set(pinned.map(\.windowID))
         for (id, badge) in pinnedBadges where !ids.contains(id) {
             badge.orderOut(nil)
             pinnedBadges[id] = nil
         }
-        // Only what is pinned or focused needs its spot remembered.
-        slots.retain(ids.union(focusedWindow.map { [$0.windowID] } ?? []))
         for pw in pinned {
             let badge = pinnedBadges[pw.windowID] ?? {
                 let b = BadgePanel(pinned: true)
@@ -223,13 +282,13 @@ final class PinBadgeController {
                 // crop. Such a pin is unpinned from the menu instead.
                 if overlay.frame.width >= BadgePanel.side * 3, overlay.frame.height >= BadgePanel.side * 2 {
                     badge.show(on: overlay.frame, at: overlaySpot(pw.windowID, overlay),
-                               level: overlay.level, above: overlay.windowNumber)
+                               level: overlay.level, above: overlay.windowNumber, restack: restack)
                 } else {
                     badge.orderOut(nil)
                 }
             } else if let frame = Self.onScreenFrame(of: pw.windowID) {
                 let spot = slots.spot(pid: pw.ownerPID, windowID: pw.windowID, frame: frame, side: BadgePanel.side)
-                badge.show(on: frame, at: spot, level: .normal, above: Int(pw.windowID))
+                badge.show(on: frame, at: spot, level: .normal, above: Int(pw.windowID), restack: restack)
             } else {
                 badge.orderOut(nil)
             }
@@ -333,12 +392,21 @@ private final class BadgePanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
+    /// The window this badge was last put above.
+    private var orderedAbove = 0
+
     /// Put the badge at `spot` on `frame`, just above window `above`.
-    func show(on frame: NSRect, at spot: BadgeSpot, level: NSWindow.Level, above windowNumber: Int) {
+    ///
+    /// - Parameter restack: order it above the window even if it already was.
+    func show(on frame: NSRect, at spot: BadgeSpot, level: NSWindow.Level, above windowNumber: Int,
+              restack: Bool = true) {
         let origin = NSPoint(x: frame.maxX - Self.side - spot.right,
                              y: frame.maxY - Self.side - spot.top)
+        let moved = self.frame.origin != origin || self.level != level
         if self.frame.origin != origin { setFrameOrigin(origin) }
         if self.level != level { self.level = level }
+        guard restack || moved || !isVisible || orderedAbove != windowNumber else { return }
+        orderedAbove = windowNumber
         order(.above, relativeTo: windowNumber)
     }
 }
