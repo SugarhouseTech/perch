@@ -181,12 +181,11 @@ final class PinnedWindowTracker {
             // - Otherwise → raise overlay to front (user switched away, keep pinned content visible)
             for pw in self.pinnedWindows {
                 if let overlay = self.overlays[pw.windowID] {
-                    if overlay.isCropped {
-                        self.updateLayering(of: overlay)
-                    } else if pw.ownerPID == activatedPID {
-                        overlay.sendBehind()
-                    } else {
-                        overlay.bringToFront()
+                    switch PinPolicy.activationAction(isCropped: overlay.isCropped,
+                                                      ownerPID: pw.ownerPID,
+                                                      activatedPID: activatedPID) {
+                    case .decideByLayering: self.updateLayering(of: overlay)
+                    case .change(let change): self.apply(change, to: overlay)
                     }
                     // A pin that stayed up through this switch but has lost
                     // its stream gets it back here.
@@ -230,7 +229,9 @@ final class PinnedWindowTracker {
 
     private func cropsChanged() {
         let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        let needed = overlays.values.contains { $0.isCropped && $0.targetPID == frontPID }
+        let needed = PinPolicy.layeringTimerNeeded(
+            pins: overlays.values.map { (isCropped: $0.isCropped, targetPID: $0.targetPID) },
+            frontPID: frontPID)
         if needed, layeringTimer == nil {
             layeringTimer = Timer.scheduledTimer(withTimeInterval: Self.layeringInterval,
                                                  repeats: true) { [weak self] _ in
@@ -259,13 +260,15 @@ final class PinnedWindowTracker {
     }
 
     private func updateLayering(of overlay: WindowOverlay) {
-        // Act only on a change: this runs twice a second, and bringToFront
-        // logs each call it skips.
-        let inUse = overlay.isTargetInUse
-        if inUse, overlay.isPinVisible {
-            overlay.sendBehind()
-        } else if !inUse, !overlay.isPinVisible {
-            overlay.bringToFront()
+        guard let change = PinPolicy.layeringChange(inUse: overlay.isTargetInUse,
+                                                    visible: overlay.isPinVisible) else { return }
+        apply(change, to: overlay)
+    }
+
+    private func apply(_ change: PinLayerChange, to overlay: WindowOverlay) {
+        switch change {
+        case .sendBehind: overlay.sendBehind()
+        case .bringToFront: overlay.bringToFront()
         }
     }
 
@@ -300,16 +303,24 @@ final class PinnedWindowTracker {
 
     private func pruneClosedWindows() {
         guard !pinnedWindows.isEmpty else { return }
-        guard ProcessInfo.processInfo.systemUptime >= pruneQuietUntil else { return }
-        // Another user has the screen: this session's windows are not ours
-        // to judge until it comes back.
-        if let session = CGSessionCopyCurrentDictionary() as? [String: Any],
-           session[kCGSessionOnConsoleKey as String] as? Bool == false { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        // Unknown counts as on the console: only a definite "no" holds back.
+        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+        let onConsole = session?[kCGSessionOnConsoleKey as String] as? Bool != false
+        // Skip the lookups too while they would be ignored.
+        guard PinPolicy.mayPrune(now: now, quietUntil: pruneQuietUntil, onConsole: onConsole) else { return }
         // One small lookup per pin rather than a listing of every window on
-        // the system. A lookup that fails says nothing either way.
-        let gone = Set(pinnedWindows.map(\.windowID).filter { WindowDetector.windowExists($0) == false })
-        let removed = pinnedWindows.filter { gone.contains($0.windowID) && missingOnce.contains($0.windowID) }
-        missingOnce = gone
+        // the system.
+        var lookups: [UInt32: Bool?] = [:]
+        for pw in pinnedWindows { lookups[pw.windowID] = WindowDetector.windowExists(pw.windowID) }
+        let outcome = PinPolicy.prune(pinned: Set(pinnedWindows.map(\.windowID)),
+                                      lookups: lookups,
+                                      missingOnce: missingOnce,
+                                      now: now,
+                                      quietUntil: pruneQuietUntil,
+                                      onConsole: onConsole)
+        missingOnce = outcome.missingOnce
+        let removed = pinnedWindows.filter { outcome.remove.contains($0.windowID) }
         guard !removed.isEmpty else { return }
         for pw in removed {
             overlays[pw.windowID]?.hideOverlay()
