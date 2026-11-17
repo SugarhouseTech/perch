@@ -38,10 +38,18 @@ enum JorvikWindowHelper {
     /// open on another space went back there every time (measured on 27.0.1,
     /// 2026-10-11). It does not make the window follow the user around; a
     /// space switch does not activate it.
-    static func showOnActiveSpace(_ window: NSWindow) {
+    ///
+    /// - Parameter activate: also make the app active. Without it the window
+    ///   comes up in front but the keyboard stays with the app in use, which
+    ///   is the polite way to appear on a launch the user did not ask for.
+    static func showOnActiveSpace(_ window: NSWindow, activate: Bool = true) {
         window.collectionBehavior.insert(.moveToActiveSpace)
         if !(window.isVisible && window.isOnActiveSpace) {
             centreOnActiveDisplay(window)
+        }
+        guard activate else {
+            window.orderFrontRegardless()
+            return
         }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

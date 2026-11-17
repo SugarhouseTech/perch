@@ -24,11 +24,14 @@ enum SetupWindow {
         isMissingPermission || !UserDefaults.standard.bool(forKey: shownKey)
     }
 
-    /// - Parameter shortcut: the current shortcut, for the closing line.
-    static func show(shortcut: String) {
+    /// - Parameters:
+    ///   - shortcut: the current shortcut, for the closing line.
+    ///   - activate: bring WindowPin to the front with it. False at launch,
+    ///     so it comes up without taking the keyboard from what the user was doing.
+    static func show(shortcut: String, activate: Bool = true) {
         UserDefaults.standard.set(true, forKey: shownKey)
         if let window {
-            JorvikWindowHelper.showOnActiveSpace(window)
+            JorvikWindowHelper.showOnActiveSpace(window, activate: activate)
             return
         }
         let controller = NSHostingController(rootView: SetupView(shortcut: shortcut) {
@@ -40,7 +43,7 @@ enum SetupWindow {
         w.isReleasedWhenClosed = false
         w.setContentSize(controller.view.fittingSize)
         window = w
-        JorvikWindowHelper.showOnActiveSpace(w)
+        JorvikWindowHelper.showOnActiveSpace(w, activate: activate)
     }
 
     /// Quit and start again, which is when macOS applies a Screen Recording

@@ -83,6 +83,21 @@ class WindowOverlay: NSPanel {
     /// resize can tell which edges moved and by how much.
     private var lastPanelFrame: NSRect = .zero
     private var resizeObserver: NSObjectProtocol?
+    private var occlusionObserver: NSObjectProtocol?
+    /// Stops the stream a moment after the pin went behind. Switching to the
+    /// pinned app and straight back is common (a glance, a Cmd-Tab too far),
+    /// and a stream kept for a few seconds is reused instead of being torn
+    /// down and built again each time.
+    private var behindStop: DispatchWorkItem?
+    private static let behindGrace: TimeInterval = 3
+    /// The pin cannot be seen: it is on another Space, behind a full-screen
+    /// app, or the display is asleep or locked. Its stream and frame sync are
+    /// paused meanwhile, so a pinned video on another Space is not filmed at
+    /// thirty frames a second for nobody.
+    private var isOutOfSight = false
+    /// When the stream was last revived without being asked to by a wake or a
+    /// display change. See `reviveStreamIfNeeded`.
+    private var lastRevive: TimeInterval = -.infinity
     /// A selection smaller than this either way is taken as a click, not a
     /// crop. It is also about as small as a pin can usefully be.
     private static let minimumCropSide: CGFloat = 16
@@ -106,6 +121,12 @@ class WindowOverlay: NSPanel {
     private var isResolving = false
     /// The screenshot taken before the pin is first shown is under way.
     private var isPreparingFirstShow = false
+    /// The pin starts out of sight and should be got ready behind its window
+    /// as soon as the window is found. See `prepareBehind`.
+    private var wantsStaging = false
+    /// The pin was removed: nothing may put it back on screen, including a
+    /// screenshot that finishes afterwards.
+    private var isRemoved = false
     /// ScreenCaptureKit refused for want of Screen Recording. Nothing here can
     /// fix that, and asking again puts the system's prompt back up.
     private var captureDenied = false
@@ -215,6 +236,28 @@ class WindowOverlay: NSPanel {
         ) { [weak self] _ in
             self?.cropFollowsResize()
         }
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: self, queue: .main
+        ) { [weak self] _ in
+            self?.occlusionChanged()
+        }
+    }
+
+    private func occlusionChanged() {
+        let hidden = !occlusionState.contains(.visible)
+        guard hidden != isOutOfSight else { return }
+        isOutOfSight = hidden
+        guard isPinVisible else { return }
+        if hidden {
+            wplog("overlay: out of sight, pausing wid=\(targetWindowID)")
+            stopStream()
+            stopFrameSync()
+        } else {
+            wplog("overlay: back in sight, resuming wid=\(targetWindowID)")
+            syncFrameWithTarget()
+            startStream()
+            startFrameSync()
+        }
     }
 
     // MARK: - ScreenCaptureKit window resolution
@@ -243,6 +286,7 @@ class WindowOverlay: NSPanel {
                 if let match = content.windows.first(where: { $0.windowID == targetWindowID }) {
                     self.scWindow = match
                     wplog("overlay: resolved SCWindow for wid=\(targetWindowID) title='\(match.title ?? "")'")
+                    self.stageBehindIfReady()
                     if startStream && self.isPinVisible {
                         self.startStream()
                     }
@@ -277,7 +321,7 @@ class WindowOverlay: NSPanel {
         guard thenStartStream, streamRestarts < Self.maxStreamRestarts else { return }
         streamRestarts += 1
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            guard let self = self, self.isPinVisible, self.stream == nil else { return }
+            guard let self = self, self.isPinVisible, !self.isOutOfSight, self.stream == nil else { return }
             self.resolveSCWindow(thenStartStream: true)
         }
     }
@@ -717,6 +761,8 @@ class WindowOverlay: NSPanel {
     var isTargetInUse: Bool {
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID else { return false }
         let app = AXUIElementCreateApplication(targetPID)
+        // Asked twice a second on the main thread: a hung app must not hold it up.
+        AXUIElementSetMessagingTimeout(app, 0.1)
         var mainRef: AnyObject?
         guard AXUIElementCopyAttributeValue(app, kAXMainWindowAttribute as CFString, &mainRef) == .success,
               let main = mainRef, CFGetTypeID(main) == AXUIElementGetTypeID() else { return false }
@@ -734,7 +780,14 @@ class WindowOverlay: NSPanel {
             return
         }
         wplog("overlay: bringToFront wid=\(targetWindowID)")
+        behindStop?.cancel()
+        behindStop = nil
         isPinVisible = true
+        // Whatever was reported while the pin sat invisible behind its window
+        // no longer holds. Assume it will be seen; if not, the next report
+        // pauses it. Trusting the old answer could leave the pin frozen if
+        // the report of it coming into view never arrived.
+        isOutOfSight = false
         streamRestarts = 0
         syncFrameWithTarget()
 
@@ -759,8 +812,14 @@ class WindowOverlay: NSPanel {
         wplog("overlay: sendBehind wid=\(targetWindowID)")
         isPinVisible = false
         cancelGesture()
-        stopStream()
         stopFrameSync()
+        behindStop?.cancel()
+        let stop = DispatchWorkItem { [weak self] in
+            guard let self, !self.isPinVisible else { return }
+            self.stopStream()
+        }
+        behindStop = stop
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.behindGrace, execute: stop)
         // Not yet shown for the first time: there is nothing to put behind,
         // and ordering it back would put an empty panel on screen.
         guard isVisible else { return }
@@ -791,8 +850,18 @@ class WindowOverlay: NSPanel {
     /// changed. Without this such a pin kept its last frame until it next went
     /// behind and came back. Called whenever the active app changes, on wake
     /// and when the displays change.
-    func reviveStreamIfNeeded() {
-        guard isPinVisible, isVisible, stream == nil, !captureDenied else { return }
+    ///
+    /// - Parameter force: a wake or a display change, which really can end a
+    ///   stream. Otherwise, at most once every half minute: a pin whose stream
+    ///   will not start would else get five more tries at every app switch,
+    ///   each a full listing of every window.
+    func reviveStreamIfNeeded(force: Bool = false) {
+        // Asked afresh rather than trusting the last report.
+        isOutOfSight = isVisible && !occlusionState.contains(.visible)
+        guard isPinVisible, isVisible, stream == nil, !captureDenied, !isOutOfSight else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard force || now - lastRevive >= 30 else { return }
+        lastRevive = now
         wplog("overlay: reviving stream wid=\(targetWindowID)")
         streamRestarts = 0
         startStream()
@@ -801,6 +870,10 @@ class WindowOverlay: NSPanel {
     /// Fully remove overlay from screen (used when unpinning / cleaning up).
     func hideOverlay() {
         wplog("overlay: hideOverlay wid=\(targetWindowID)")
+        isRemoved = true
+        wantsStaging = false
+        behindStop?.cancel()
+        behindStop = nil
         AXScroller.forget(windowID: targetWindowID)
         isPinVisible = false
         cancelGesture()
@@ -810,6 +883,57 @@ class WindowOverlay: NSPanel {
     }
 
     // MARK: - Initial show (first time only)
+
+    /// Get a pin that starts out of sight ready to come up without a gap.
+    ///
+    /// A pin usually starts behind its window, the one in use, and first comes
+    /// up when the user switches to another app. It used to take its first
+    /// screenshot only then: the new app's windows covered the real one at
+    /// once, and the pin appeared about a quarter of a second later (the
+    /// screenshot, then a fade), which reads as the window blinking. So the
+    /// screenshot is taken now, while the window is in front and in full view,
+    /// and the pin waits behind it, invisible, exactly as it does after every
+    /// later switch. The first switch then simply makes it opaque.
+    func prepareBehind() {
+        wantsStaging = true
+        stageBehindIfReady()
+    }
+
+    private func stageBehindIfReady() {
+        guard wantsStaging, !isRemoved, !isVisible, !isPinVisible, !isPreparingFirstShow,
+              let scWindow else { return }
+        wantsStaging = false
+        isPreparingFirstShow = true
+        syncFrameWithTarget()
+        Task { @MainActor in
+            await self.captureFirstFrame(scWindow)
+            self.isPreparingFirstShow = false
+            guard !self.isRemoved, !self.isVisible else { return }
+            // Switched away while the screenshot was being taken: come up now.
+            if self.isPinVisible {
+                self.fadeIn()
+                return
+            }
+            self.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.normalWindow)) - 1)
+            self.setShown(false)
+            self.orderBack(nil)
+            wplog("overlay: ready behind wid=\(self.targetWindowID)")
+        }
+    }
+
+    /// One screenshot of the window, so the pin has content before the stream
+    /// delivers its first frame.
+    private func captureFirstFrame(_ scWindow: SCWindow) async {
+        let filter = SCContentFilter(desktopIndependentWindow: scWindow)
+        let config = makeStreamConfig(pixelScale: CGFloat(filter.pointPixelScale))
+        do {
+            contentLayer.contents = try await SCScreenshotManager.captureImage(
+                contentFilter: filter, configuration: config
+            )
+        } catch {
+            wplog("overlay: pre-show capture failed wid=\(targetWindowID): \(error)")
+        }
+    }
 
     private func doInitialShow() {
         guard let scWindow = self.scWindow else {
@@ -825,19 +949,11 @@ class WindowOverlay: NSPanel {
         // Grab one screenshot BEFORE showing so the first visible frame has
         // content — the stream takes a beat to deliver its first frame.
         Task { @MainActor in
-            let filter = SCContentFilter(desktopIndependentWindow: scWindow)
-            let config = self.makeStreamConfig(pixelScale: CGFloat(filter.pointPixelScale))
-            do {
-                self.contentLayer.contents = try await SCScreenshotManager.captureImage(
-                    contentFilter: filter, configuration: config
-                )
-            } catch {
-                wplog("overlay: pre-show capture failed wid=\(targetWindowID): \(error)")
-            }
+            await self.captureFirstFrame(scWindow)
             self.isPreparingFirstShow = false
             // The pin may have been sent behind or unpinned while the
             // screenshot was being taken; it must stay that way.
-            guard self.isPinVisible, !self.isVisible else { return }
+            guard self.isPinVisible, !self.isVisible, !self.isRemoved else { return }
             self.fadeIn()
         }
     }
@@ -858,7 +974,7 @@ class WindowOverlay: NSPanel {
     // MARK: - Live stream
 
     private func startStream() {
-        guard stream == nil else { return }
+        guard stream == nil, !isOutOfSight else { return }
         guard let scWindow = self.scWindow else {
             resolveSCWindow(thenStartStream: true)
             return
@@ -882,7 +998,16 @@ class WindowOverlay: NSPanel {
         }
         stream = newStream
         newStream.startCapture { [weak self] error in
-            guard let error = error else { return }
+            guard let error = error else {
+                // Stopped or replaced while it was starting: a stop sent then
+                // fails, and the stream would go on capturing with no owner.
+                DispatchQueue.main.async {
+                    guard self?.stream !== newStream else { return }
+                    wplog("overlay: stopping a stream replaced while starting")
+                    newStream.stopCapture { _ in }
+                }
+                return
+            }
             wplog("overlay: startCapture failed wid=\(self?.targetWindowID ?? 0): \(error)")
             DispatchQueue.main.async {
                 guard let self, self.stream === newStream else { return }
@@ -897,14 +1022,14 @@ class WindowOverlay: NSPanel {
     /// its own, rather than leaving the pin on a frozen frame until it next
     /// goes behind and comes back.
     private func restartStreamAfterFailure() {
-        guard isPinVisible else { return }
+        guard isPinVisible, !isOutOfSight else { return }
         guard streamRestarts < Self.maxStreamRestarts else {
             wplog("overlay: giving up restarting stream wid=\(targetWindowID)")
             return
         }
         streamRestarts += 1
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            guard let self = self, self.isPinVisible, self.stream == nil else { return }
+            guard let self = self, self.isPinVisible, !self.isOutOfSight, self.stream == nil else { return }
             self.resolveSCWindow(thenStartStream: true)
         }
     }
@@ -1016,7 +1141,11 @@ class WindowOverlay: NSPanel {
         config.scalesToFit = true
         config.showsCursor = false
         config.pixelFormat = kCVPixelFormatType_32BGRA
-        config.queueDepth = 5
+        // Frames in flight. Each is a whole window of pixels: about 57 MB for
+        // a 5K-wide window at 2x. Five is smooth headroom for ordinary
+        // windows; a very large one keeps the minimum, as the frame on screen
+        // is held separately and cannot be overwritten.
+        config.queueDepth = config.width * config.height > 6_000_000 ? 3 : 5
         config.minimumFrameInterval = CMTime(
             seconds: 1.0 / max(Self.captureRate, 0.1),
             preferredTimescale: 600
@@ -1031,6 +1160,7 @@ class WindowOverlay: NSPanel {
         frameSyncTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             self?.syncFrameWithTarget()
         }
+        frameSyncTimer?.tolerance = 0.1
     }
 
     private func stopFrameSync() {
@@ -1111,6 +1241,7 @@ class WindowOverlay: NSPanel {
 
     deinit {
         if let resizeObserver { NotificationCenter.default.removeObserver(resizeObserver) }
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
         frameSyncTimer?.invalidate()
         reconfigureTimer?.invalidate()
         if let stream = stream {
