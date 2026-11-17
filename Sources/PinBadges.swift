@@ -27,6 +27,8 @@ final class PinBadgeController {
     private var focusedWindow: ForeignWindow?
     /// Keeps badges off the window's own title-bar buttons.
     private let slots = TitleBarSlotFinder()
+    /// Apps whose windows get a badge only once pinned: see `BadgeOffsets`.
+    private var onlyWhenPinned: Set<String> = []
 
     // Nothing here runs on a timer while nothing is happening. A badge only
     // has to move when a window does, and every way a window can change says
@@ -82,8 +84,16 @@ final class PinBadgeController {
             observe(workspace, name)
         }
         observe(.default, NSApplication.didChangeScreenParametersNotification)
-        // The two switches in Settings.
+        observers.append((workspace, workspace.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
+                self?.slots.forget(pid: app.processIdentifier)
+            }
+        }))
+        // The two switches and the distances in Settings.
         observe(.default, UserDefaults.didChangeNotification)
+        slots.offsets = BadgeOffsets.all()
 
         // Mouse buttons need no permission to watch, unlike keys. Clicks on
         // WindowPin's own windows are not reported here; a click on a badge
@@ -130,6 +140,8 @@ final class PinBadgeController {
         }
         lastRefresh = now
         refreshPending = false
+        slots.offsets = BadgeOffsets.all()
+        onlyWhenPinned = BadgeOffsets.onlyWhenPinned()
         observeFrontmostApp()
         readFocusedWindow()
         update()
@@ -193,7 +205,20 @@ final class PinBadgeController {
     }
 
     private func readFocusedWindow() {
-        focusedWindow = Self.showsFocused ? Self.focusedForeignWindow() : nil
+        guard Self.showsFocused else { focusedWindow = nil; return }
+        switch Self.focusedForeignWindow() {
+        case .window(let window):
+            focusedWindow = window
+        case .noWindow:
+            focusedWindow = nil
+        case .noAnswer(let pid, let error):
+            // A busy app can miss the short wait: Discord does while starting
+            // up. Hiding the badge then would also end the checks still
+            // waiting on its title bar. Keep the last answer for the same app;
+            // a window it has closed since drops out when its frame is looked up.
+            wplog("badge: focused window of pid=\(pid) not answered (err \(error)), keeping last")
+            if focusedWindow?.ownerPID != pid { focusedWindow = nil }
+        }
     }
 
     // MARK: - The active app's window changes
@@ -297,6 +322,7 @@ final class PinBadgeController {
 
     private func updateFocusedBadge() {
         guard let fw = focusedWindow, !tracker.isPinned(windowID: fw.windowID),
+              onlyWhenPinned.isEmpty || !onlyWhenPinned.contains(slots.bundleID(of: fw.ownerPID)),
               let frame = Self.onScreenFrame(of: fw.windowID),
               frame.width >= 200, frame.height >= 120,
               // A window filling a whole display is full screen: a film, a
@@ -319,7 +345,8 @@ final class PinBadgeController {
     /// found on the window scales with it. A cropped pin shows only part of the
     /// window and its corner is somewhere else entirely, so it keeps the corner.
     private func overlaySpot(_ windowID: UInt32, _ overlay: WindowOverlay) -> BadgeSpot {
-        guard overlay.crop == nil, let known = slots.knownSpot(windowID: windowID),
+        guard overlay.crop == nil,
+              let known = slots.knownSpot(pid: overlay.targetPID, windowID: windowID, side: BadgePanel.side),
               known.size.width > 0 else { return .corner }
         var spot = known.spot.scaled(by: overlay.frame.width / known.size.width)
         spot.right = min(max(spot.right, TitleBarSlot.margin), overlay.frame.width - BadgePanel.side * 2)
@@ -331,20 +358,29 @@ final class PinBadgeController {
 
     /// The focused window of the frontmost app, if it is an ordinary window of
     /// another app.
-    private static func focusedForeignWindow() -> ForeignWindow? {
+    private enum FocusedLookup {
+        case window(ForeignWindow)
+        /// No ordinary window of another app has focus.
+        case noWindow
+        /// The app did not answer in time.
+        case noAnswer(pid_t, Int32)
+    }
+
+    private static func focusedForeignWindow() -> FocusedLookup {
         guard let app = NSWorkspace.shared.frontmostApplication,
-              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return nil }
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return .noWindow }
         let axApp = AXUIElementCreateApplication(app.processIdentifier)
         // Several times a second, on the main thread: never wait long on a slow app.
         AXUIElementSetMessagingTimeout(axApp, 0.1)
         var ref: AnyObject?
-        guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &ref) == .success,
-              let window = WindowLevelManager.element(from: ref) else { return nil }
+        let err = AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &ref)
+        if err == .cannotComplete { return .noAnswer(app.processIdentifier, err.rawValue) }
+        guard err == .success, let window = WindowLevelManager.element(from: ref) else { return .noWindow }
         let wid = WindowLevelManager.windowID(of: window)
         WindowSurvey.record(window, windowID: wid, app: app)
-        guard let wid else { return nil }
-        return ForeignWindow(windowID: wid, ownerPID: app.processIdentifier,
-                             ownerName: app.localizedName ?? "", windowTitle: "")
+        guard let wid else { return .noWindow }
+        return .window(ForeignWindow(windowID: wid, ownerPID: app.processIdentifier,
+                                     ownerName: app.localizedName ?? "", windowTitle: ""))
     }
 
     /// A window's frame in AppKit coordinates, if it is an ordinary on-screen window.

@@ -135,6 +135,44 @@ final class TitleBarRecheckTests: XCTestCase {
         XCTAssertFalse(Finder.wantsRecheck(last, now: 100))
     }
 
+    func testAnAppWithItsTreeBuiltIsBelievedAtOnce() {
+        XCTAssertTrue(Finder.merge(found: [20, 40], failed: false, earlier: nil).sure)
+        XCTAssertFalse(Finder.merge(found: [], failed: false, earlier: nil).sure)
+        XCTAssertFalse(Finder.merge(found: [20], failed: true, earlier: nil).sure)
+    }
+
+    func testAHalfBuiltFlickeringTreeIsNeverForgotten() {
+        // A freshly started Discord: nothing, only the help button, nothing
+        // again, then help and inbox.
+        var known: Set<Int> = []
+        for found: Set<Int> in [[20, 40], [], [20, 40, 56, 76]] {
+            let m = Finder.merge(found: found, failed: false, earlier: known)
+            XCTAssertFalse(m.sure, "a late app is asked until its tries run out")
+            XCTAssertEqual(m.grew, !found.isSubset(of: known))
+            known = m.known
+        }
+        XCTAssertEqual(known, [20, 40, 56, 76])
+        XCTAssertFalse(Finder.merge(found: [20, 40], failed: false, earlier: known).grew,
+                       "a partial answer takes nothing away")
+    }
+
+    func testATreeStillGrowingGetsMoreTries() {
+        let growing = Finder.Entry(size: size, spot: .corner, sure: false, grew: true,
+                                   tries: Finder.maxTries, at: 100)
+        XCTAssertTrue(Finder.shouldMeasure(growing, now: 110, dragging: false))
+        let done = Finder.Entry(size: size, spot: .corner, sure: false, grew: true,
+                                tries: Finder.maxTriesWhileGrowing, at: 100)
+        XCTAssertFalse(Finder.shouldMeasure(done, now: 10_000, dragging: false))
+        XCTAssertFalse(Finder.wantsRecheck(done, now: 100))
+    }
+
+    func testControlsFromEveryAnswerAreKeptClearOf() {
+        // The scan, given what earlier answers found, skips past all of it.
+        let known: Set<Int> = [20, 40, 56, 76]
+        let inset = TitleBarSlot.inset(side: 22, width: 1327) { known.contains(Int($0)) ? .taken : .free }
+        XCTAssertEqual(inset, 80)
+    }
+
     /// Model check: drive the policy with random sizes, timings and answers,
     /// as the controller would, and bound how often an app is asked.
     func testRandomScheduleNeverAsksOftenOrForever() {
@@ -156,9 +194,10 @@ final class TitleBarRecheckTests: XCTestCase {
                 if Finder.shouldMeasure(e, now: t, dragging: dragging) {
                     let tries = e.map { $0.size == lastSize ? $0.tries + 1 : 1 } ?? 1
                     let sure = Int.random(in: 0..<3, using: &rng) == 0
-                    e = Finder.Entry(size: lastSize, spot: .corner, sure: sure, tries: tries, at: t)
+                    let grew = Bool.random(using: &rng)
+                    e = Finder.Entry(size: lastSize, spot: .corner, sure: sure, grew: grew, tries: tries, at: t)
                     measures.append(t)
-                    XCTAssertLessThanOrEqual(tries, Finder.maxTries)
+                    XCTAssertLessThanOrEqual(tries, Finder.maxTriesWhileGrowing)
                 }
                 if let e, Finder.wantsRecheck(e, now: t) { recheckUntil = t + 0.5 }
             }

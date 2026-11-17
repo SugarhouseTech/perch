@@ -76,6 +76,9 @@ struct WindowPinSettingsContent: View {
             }
         }
 
+        BadgeOffsetSettings()
+            .disabled(!badgePinned && !badgeFocused)
+
         Section("Overlays") {
             Picker(selection: $captureRate) {
                 Text("0.5 fps").tag(0.5)
