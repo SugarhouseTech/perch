@@ -104,6 +104,8 @@ final class PinnedWindowTracker {
         // switch coming to bring it up, so it comes up now.
         if NSWorkspace.shared.frontmostApplication?.processIdentifier != window.ownerPID {
             overlay.bringToFront()
+        } else {
+            overlay.prepareBehind()
         }
 
         pinsChanged()
@@ -191,6 +193,7 @@ final class PinnedWindowTracker {
                     overlay.reviveStreamIfNeeded()
                 }
             }
+            self.cropsChanged()
         }
     }
 
@@ -201,10 +204,11 @@ final class PinnedWindowTracker {
     /// outlasts, leaving the pin on a frozen frame.
     private func observeWakeAndDisplays() {
         let revive: (Notification) -> Void = { [weak self] _ in
+            self?.pruneQuietUntil = ProcessInfo.processInfo.systemUptime + 10
             // A moment for the displays to settle; a stream started at once
             // is as likely to be stopped again.
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                self?.overlays.values.forEach { $0.reviveStreamIfNeeded() }
+                self?.overlays.values.forEach { $0.reviveStreamIfNeeded(force: true) }
             }
         }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -217,19 +221,23 @@ final class PinnedWindowTracker {
 
     /// A cropped pin goes behind only while its own window is the one in use,
     /// not whenever its app is active (see `WindowOverlay.isTargetInUse`).
-    /// Switching windows inside one app raises no notification, so while any
-    /// pin is cropped its layering is checked on a timer. Half a second matches
-    /// how often a visible pin already follows its window.
+    /// Switching windows inside one app raises no notification, so while a
+    /// cropped pin's app is in front its layering is checked on a timer. Half
+    /// a second matches how often a visible pin already follows its window.
+    /// With any other app in front the answer cannot change until the next
+    /// app switch, which updates it anyway, so the timer runs only then.
     private static let layeringInterval: TimeInterval = 0.5
 
     private func cropsChanged() {
-        let anyCropped = overlays.values.contains { $0.isCropped }
-        if anyCropped, layeringTimer == nil {
+        let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let needed = overlays.values.contains { $0.isCropped && $0.targetPID == frontPID }
+        if needed, layeringTimer == nil {
             layeringTimer = Timer.scheduledTimer(withTimeInterval: Self.layeringInterval,
                                                  repeats: true) { [weak self] _ in
                 self?.updateCroppedLayering()
             }
-        } else if !anyCropped {
+            layeringTimer?.tolerance = 0.1
+        } else if !needed {
             layeringTimer?.invalidate()
             layeringTimer = nil
         }
@@ -274,14 +282,34 @@ final class PinnedWindowTracker {
             pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
                 self?.pruneClosedWindows()
             }
+            // Lets macOS fire it together with other timers.
+            pollTimer?.tolerance = 0.5
         }
         onChange?()
     }
 
+    /// Pinned windows missing from the last window list. A window goes only
+    /// when two lists in a row lack it: the list can come back empty or short
+    /// while the displays change, around sleep, or while another user has the
+    /// screen, and that once unpinned everything.
+    private var missingOnce: Set<UInt32> = []
+
+    /// No pruning until then: the window list is unreliable for a while
+    /// after wake, longer than two lookups.
+    private var pruneQuietUntil: TimeInterval = 0
+
     private func pruneClosedWindows() {
         guard !pinnedWindows.isEmpty else { return }
-        let existing = WindowDetector.allWindowIDs()
-        let removed = pinnedWindows.filter { !existing.contains($0.windowID) }
+        guard ProcessInfo.processInfo.systemUptime >= pruneQuietUntil else { return }
+        // Another user has the screen: this session's windows are not ours
+        // to judge until it comes back.
+        if let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+           session[kCGSessionOnConsoleKey as String] as? Bool == false { return }
+        // One small lookup per pin rather than a listing of every window on
+        // the system. A lookup that fails says nothing either way.
+        let gone = Set(pinnedWindows.map(\.windowID).filter { WindowDetector.windowExists($0) == false })
+        let removed = pinnedWindows.filter { gone.contains($0.windowID) && missingOnce.contains($0.windowID) }
+        missingOnce = gone
         guard !removed.isEmpty else { return }
         for pw in removed {
             overlays[pw.windowID]?.hideOverlay()

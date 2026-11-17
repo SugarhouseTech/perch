@@ -41,7 +41,8 @@ enum AXScroller {
         AXUIElementSetMessagingTimeout(window, messagingTimeout)
 
         var areas: [AXUIElement] = []
-        collectScrollAreas(under: window, depth: 0, into: &areas)
+        var budget = nodeBudget
+        collectScrollAreas(under: window, depth: 0, into: &areas, budget: &budget)
         wplog("axprobe: found \(areas.count) AXScrollArea(s)")
         guard let area = areas.first else {
             wplog("axprobe: RESULT — no scroll area in this window. Nothing to drive.")
@@ -206,7 +207,8 @@ enum AXScroller {
         }
         AXUIElementSetMessagingTimeout(window, messagingTimeout)
         var areas: [AXUIElement] = []
-        collectScrollAreas(under: window, depth: 0, into: &areas)
+        var budget = nodeBudget
+        collectScrollAreas(under: window, depth: 0, into: &areas, budget: &budget)
         // The first settable scroll bar wins. Some windows have several areas —
         // a sidebar and a content list — and the sidebar is often first in the
         // tree but not what the user means.
@@ -261,9 +263,14 @@ enum AXScroller {
 
     /// Depth-limited on purpose. A deep tree on a busy app is exactly where the
     /// 29-second Accessibility walks came from elsewhere in the estate.
+    /// Also capped by count: a web page's tree runs to thousands of elements,
+    /// and each one asked about is a round trip to an app that may be busy.
+    private static let nodeBudget = 400
+
     private static func collectScrollAreas(under element: AXUIElement, depth: Int,
-                                           into areas: inout [AXUIElement]) {
-        guard depth < 12, areas.count < 8 else { return }
+                                           into areas: inout [AXUIElement], budget: inout Int) {
+        guard depth < 12, areas.count < 8, budget > 0 else { return }
+        budget -= 1
         if let role = copyString(element, kAXRoleAttribute), role == kAXScrollAreaRole {
             areas.append(element)
         }
@@ -271,7 +278,7 @@ enum AXScroller {
         guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
               let children = childrenRef as? [AXUIElement] else { return }
         for child in children {
-            collectScrollAreas(under: child, depth: depth + 1, into: &areas)
+            collectScrollAreas(under: child, depth: depth + 1, into: &areas, budget: &budget)
         }
     }
 

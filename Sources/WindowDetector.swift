@@ -21,11 +21,19 @@ enum WindowDetector {
     /// Returns the frontmost window that does NOT belong to this process.
     static func getFrontmostForeignWindow() -> ForeignWindow? {
         guard let frontApp = NSWorkspace.shared.frontmostApplication else { return nil }
+        return focusedWindow(of: frontApp)
+    }
+
+    /// The focused window of `frontApp`, if it is another app's.
+    static func focusedWindow(of frontApp: NSRunningApplication) -> ForeignWindow? {
         let myPID = ProcessInfo.processInfo.processIdentifier
         guard frontApp.processIdentifier != myPID else { return nil }
 
         // Step 1: Get focused window title via Accessibility API
         let axApp = AXUIElementCreateApplication(frontApp.processIdentifier)
+        // On the main thread: a hung app gets a quarter of a second, not the
+        // global second.
+        AXUIElementSetMessagingTimeout(axApp, 0.25)
         var axWindowRef: AnyObject?
         let axResult = AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &axWindowRef)
 
@@ -34,6 +42,7 @@ enum WindowDetector {
         var axWindowID: CGWindowID?
 
         if axResult == .success, let axWindow = WindowLevelManager.element(from: axWindowRef) {
+            AXUIElementSetMessagingTimeout(axWindow, 0.25)
             axWindowID = WindowLevelManager.windowID(of: axWindow)
             // Get title
             var titleRef: AnyObject?
@@ -136,6 +145,14 @@ enum WindowDetector {
     /// The IDs of every window that still exists, on screen or not: minimised,
     /// on another Space, or ordered out by its app all count. A pin goes when
     /// its window is destroyed, not when it is merely out of sight.
+    /// Whether a window still exists, on screen or not, or nil if the window
+    /// server would not say. Asks about the one window, not every window.
+    static func windowExists(_ windowID: UInt32) -> Bool? {
+        guard let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(windowID))
+                as? [[String: Any]] else { return nil }
+        return list.contains { ($0[kCGWindowNumber as String] as? UInt32) == windowID }
+    }
+
     static func allWindowIDs() -> Set<UInt32> {
         guard let windowList = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return []

@@ -25,7 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     )
     #endif
 
-    private var lastForeignWindow: ForeignWindow?
+    /// The last other app that was active, for the menu to fall back on when
+    /// WindowPin itself is in front. Its window is looked up when the menu
+    /// opens, not at every app switch.
+    private var lastForeignApp: NSRunningApplication?
     private var badges: PinBadgeController?
     private var focusObserver: NSObjectProtocol?
 
@@ -115,11 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let myPID = ProcessInfo.processInfo.processIdentifier
             if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                app.processIdentifier != myPID {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    if let fw = WindowDetector.getFrontmostForeignWindow() {
-                        self.lastForeignWindow = fw
-                    }
-                }
+                self.lastForeignApp = app
             }
         }
 
@@ -137,7 +136,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         wplog("Launched successfully")
 
-        if SetupWindow.shouldShowAtLaunch { showSetup() }
+        // Shown without taking the keyboard: at login, it would otherwise
+        // grab whatever the user had started typing into.
+        if SetupWindow.shouldShowAtLaunch { SetupWindow.show(shortcut: shortcutDisplayString(), activate: false) }
     }
 
     @objc private func showSetup() {
@@ -227,13 +228,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         // Pin/Unpin action
-        // The remembered window is only a fallback, and it may have been closed
-        // since it was remembered; offering it would pin a window that is gone.
-        var remembered = lastForeignWindow
-        if let fw = remembered, !WindowDetector.allWindowIDs().contains(fw.windowID) {
-            lastForeignWindow = nil
-            remembered = nil
-        }
+        // The last other app is only a fallback, for when WindowPin itself is
+        // in front. Its focused window is asked for now, so a window closed
+        // since is never offered.
+        let remembered = lastForeignApp.flatMap { $0.isTerminated ? nil : WindowDetector.focusedWindow(of: $0) }
         let targetWindow = WindowDetector.getFrontmostForeignWindow() ?? remembered
 
         if let fw = targetWindow {
@@ -356,17 +354,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         HotkeyBinding(keyCode: Int64(shortcutKeyCode), modifiers: nsToCGModifiers(shortcutModifiers))
     }
 
+    /// Wait for Accessibility, to install the hotkey's tap.
+    ///
+    /// macOS announces a change to Accessibility trust, so this listens for
+    /// that instead of asking every two seconds. Two things from
+    /// `JorvikPermissionWatcher` matter here: the announcement comes before
+    /// the change is committed, so the tap is tried a moment later; and
+    /// `AXIsProcessTrusted()` caches its answer, so a read taken too early pins
+    /// the old one. So it is not read at all: creating the tap asks the system
+    /// directly and simply fails until the permission is there. A slow retry
+    /// backs up the announcement, which is long-standing but undocumented.
     private func startPermissionPolling() {
-        permissionTimer?.invalidate()
-        permissionTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] timer in
-            if AXIsProcessTrusted() {
-                wplog("registerHotkey: permission granted, retrying tap…")
-                if self?.tryCreateEventTap() == true {
-                    timer.invalidate()
-                    self?.permissionTimer = nil
-                }
-            }
+        if !observingAccessibility {
+            observingAccessibility = true
+            DistributedNotificationCenter.default().addObserver(
+                self, selector: #selector(accessibilityAnnounced),
+                name: JorvikPermissionWatcher.accessibilityAnnouncement, object: nil,
+                suspensionBehavior: .deliverImmediately)
         }
+        permissionTimer?.invalidate()
+        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in self?.retryEventTap() }
+        timer.tolerance = 5
+        RunLoop.main.add(timer, forMode: .common)
+        permissionTimer = timer
+    }
+
+    private var observingAccessibility = false
+    private var permissionSettle: DispatchWorkItem?
+
+    @objc private func accessibilityAnnounced() {
+        guard permissionTimer != nil else { return }
+        permissionSettle?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.retryEventTap() }
+        permissionSettle = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + JorvikPermissionWatcher.commitSeconds + 0.5, execute: work)
+    }
+
+    private func retryEventTap() {
+        guard permissionTimer != nil, tryCreateEventTap() else { return }
+        wplog("registerHotkey: Accessibility granted, hotkey active")
+        permissionTimer?.invalidate()
+        permissionTimer = nil
     }
 
     /// Revoking Accessibility (or removing and re-adding the app, as the README
@@ -375,18 +403,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// which covers coming back from System Settings. A dead tap is dropped so
     /// the permission poll can build a fresh one once Accessibility is granted
     /// again.
+    ///
+    /// While waiting, each app switch also tries the tap: the announcement of
+    /// a grant can come before anything was listening for it (removed and
+    /// re-added in one visit to System Settings), and the 30s backstop is too
+    /// slow for someone who just granted it and came back.
     private func recoverEventTapIfNeeded() {
+        if permissionTimer != nil {
+            retryEventTap()
+            return
+        }
         let tap = HotkeyTap.shared
-        guard tap.isInstalled, permissionTimer == nil, !tap.isHealthy else { return }
+        guard tap.isInstalled, !tap.isHealthy else { return }
         wplog("recoverEventTap: tap is no longer usable, waiting for Accessibility permission…")
         tap.uninstall()
         startPermissionPolling()
+        retryEventTap()
     }
 
     private func tryCreateEventTap() -> Bool {
         if HotkeyTap.shared.isInstalled { return true }
         guard HotkeyTap.shared.install() else {
-            wplog("tryCreateEventTap: CGEvent.tapCreate failed (trusted=\(AXIsProcessTrusted()))")
+            // No AXIsProcessTrusted() here: see `startPermissionPolling`.
+            wplog("tryCreateEventTap: CGEvent.tapCreate failed")
             return false
         }
         wplog("tryCreateEventTap: SUCCESS — hotkey active for keyCode=\(shortcutKeyCode)")
