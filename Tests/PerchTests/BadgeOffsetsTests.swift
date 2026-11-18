@@ -1,5 +1,5 @@
 import XCTest
-@testable import WindowPin
+@testable import Perch
 
 final class BadgeOffsetsTests: XCTestCase {
 

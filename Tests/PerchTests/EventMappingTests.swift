@@ -1,6 +1,6 @@
 import AppKit
 import Testing
-@testable import WindowPin
+@testable import Perch
 
 @Suite struct ScrollStepsTests {
 

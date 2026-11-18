@@ -1,6 +1,6 @@
 import CoreGraphics
 import XCTest
-@testable import WindowPin
+@testable import Perch
 
 /// The test every key press in the system is put through.
 final class HotkeyBindingTests: XCTestCase {

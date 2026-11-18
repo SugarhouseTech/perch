@@ -39,10 +39,10 @@ nonisolated struct HotkeyBinding: Equatable, Sendable {
 ///
 /// The tap is an active one: every key press in the system waits for its
 /// callback to return. On the main run loop that meant every key press waited
-/// on whatever the main thread was doing, and WindowPin's main thread makes
+/// on whatever the main thread was doing, and Perch's main thread makes
 /// Accessibility calls that can block for up to a second each on an app that
 /// has hung. With a thread of its own the callback only compares a few
-/// integers, so nothing WindowPin does can hold up typing.
+/// integers, so nothing Perch does can hold up typing.
 ///
 /// Its state is shared with that thread and guarded by `lock`, which the
 /// compiler cannot check; hence `@unchecked Sendable`.
@@ -115,7 +115,7 @@ nonisolated final class HotkeyTap: @unchecked Sendable {
             ready.signal()
             CFRunLoopRun()
         }
-        thread.name = "WindowPin hotkey tap"
+        thread.name = "Perch hotkey tap"
         thread.qualityOfService = .userInteractive
         thread.start()
         // Wait for the run loop to exist, so `uninstall()` always has one to stop.

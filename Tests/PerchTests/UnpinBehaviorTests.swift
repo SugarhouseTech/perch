@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import WindowPin
+@testable import Perch
 
 @Suite struct UnpinBehaviorTests {
     @Test(arguments: [nil, "not a behaviour", "leaveInView"])

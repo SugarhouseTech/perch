@@ -239,7 +239,7 @@ final class PinnedWindowTracker {
             cropsChanged()
             return
         }
-        // WindowPin itself in front (its menu or settings) changes nothing,
+        // Perch itself in front (its menu or settings) changes nothing,
         // as with app activation.
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier
                 != ProcessInfo.processInfo.processIdentifier else { return }
@@ -264,7 +264,7 @@ final class PinnedWindowTracker {
     // MARK: - Polling for closed windows
 
     /// Tell the owner the pinned set changed, and look for closed windows only
-    /// while there are pins to lose. With nothing pinned WindowPin has no
+    /// while there are pins to lose. With nothing pinned Perch has no
     /// timer running at all.
     private func pinsChanged() {
         if pinnedWindows.isEmpty {

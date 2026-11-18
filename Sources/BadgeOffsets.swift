@@ -33,7 +33,7 @@ nonisolated enum BadgeOffsets {
     static let range: ClosedRange<Double> = Double(TitleBarSlot.margin)...400
 
     /// Apps known to need a distance. Listed in Settings like any other, so
-    /// what WindowPin is doing is visible and can be changed or removed.
+    /// what Perch is doing is visible and can be changed or removed.
     static let builtIn: [String: Double] = [
         // Inbox and help buttons at the right of its own title bar, which it
         // describes only seconds after first being asked, and piecemeal.

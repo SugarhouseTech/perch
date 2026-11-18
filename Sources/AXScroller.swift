@@ -13,7 +13,7 @@ import ApplicationServices
 /// but by setting the scroll position of whatever `AXScrollArea` is under the
 /// pointer.
 ///
-///     defaults write tech.sugarhouse.WindowPin axScrollProbe -bool YES
+///     defaults write tech.sugarhouse.Perch axScrollProbe -bool YES
 ///
 /// It reports what it finds and then makes ONE attempt to move the scroll
 /// position, so the answer is visible on screen as well as in the log.
@@ -25,10 +25,10 @@ import ApplicationServices
 nonisolated enum AXScroller {
 
     /// Attribute reads are capped. A beachballed target must not take
-    /// WindowPin's main thread with it, which is why every call here runs on a
+    /// Perch's main thread with it, which is why every call here runs on a
     /// background queue with a short messaging timeout.
     private static let messagingTimeout: Float = 0.25
-    private static let queue = DispatchQueue(label: "tech.sugarhouse.WindowPin.axprobe")
+    private static let queue = DispatchQueue(label: "tech.sugarhouse.Perch.axprobe")
 
     static func probe(pid: pid_t, windowID: CGWindowID) {
         guard UserDefaults.standard.bool(forKey: "axScrollProbe") else { return }
@@ -115,7 +115,7 @@ nonisolated enum AXScroller {
     /// the document: the same gesture should not fling you through a 40-item
     /// Finder window and crawl through a long web page.
     ///
-    ///     defaults write tech.sugarhouse.WindowPin axScrollSensitivity -float 0.002
+    ///     defaults write tech.sugarhouse.Perch axScrollSensitivity -float 0.002
     private static var sensitivity: Double {
         let stored = UserDefaults.standard.double(forKey: "axScrollSensitivity")
         return stored > 0 ? stored : 0.0015

@@ -43,9 +43,20 @@ struct JorvikAboutView: View {
             Link("Source Code", destination: Self.sourceURL)
                 .font(.caption)
 
-            // The fork owes its start to the original, so it says so here too.
-            Link("Based on WindowPin by Jorvik Software", destination: Self.originalURL)
-                .font(.caption)
+            Divider()
+                .padding(.horizontal, 40)
+
+            // Perch owes its start to WindowPin, released into the public
+            // domain by its author. The thanks belongs where people look.
+            VStack(spacing: 4) {
+                Text("Perch began as WindowPin, by Jonathan Hollin of Jorvik Software, who generously released it into the public domain. Thank you, Jonathan.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                Link("The original WindowPin", destination: Self.originalURL)
+                    .font(.caption)
+            }
 
             Button("Close") {
                 NSApp.keyWindow?.close()

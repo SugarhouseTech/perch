@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let tracker = PinnedWindowTracker()
 
     /// The last other app that was active, for the menu to fall back on when
-    /// WindowPin itself is in front. Its window is looked up when the menu
+    /// Perch itself is in front. Its window is looked up when the menu
     /// opens, not at every app switch.
     private var lastForeignApp: NSRunningApplication?
     private var badges: PinBadgeController?
@@ -38,12 +38,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // editing shortcuts work in the settings window's text fields.
         JorvikApplicationMenu.install()
 
+        // Settings from before the rename to Perch, once.
+        let carried = SettingsMigration.run(
+            old: UserDefaults.standard.persistentDomain(forName: SettingsMigration.oldDomain),
+            into: .standard)
+        if !carried.isEmpty { wplog("Carried over \(carried.count) settings from WindowPin") }
+
         NSApp.setActivationPolicy(.accessory)
 
-        // Every Accessibility call WindowPin makes waits on another app, and the
+        // Every Accessibility call Perch makes waits on another app, and the
         // default timeout is about six seconds. Several run on the main thread,
         // where the hotkey's event tap also lives, so one hung app could stall
-        // WindowPin and every keystroke in the system. Setting the timeout on the
+        // Perch and every keystroke in the system. Setting the timeout on the
         // system-wide element sets it for all elements that don't set their own.
         // A second is long enough for a slow app's first answer, short enough
         // that a hung one is no worse than a hiccup.
@@ -56,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Accessibility is NOT the permission that lets an app post synthetic
         // events. Apple keeps three independent TCC buckets — Accessibility,
         // PostEvent and ListenEvent — as three separate rows, each tracked on
-        // its own, and WindowPin has only ever checked the first. Forwarding a
+        // its own, and Perch has only ever checked the first. Forwarding a
         // click or a scroll to a pinned window is a *post*, so the one that
         // decides whether it arrives is PostEvent.
         wplog("PostEvent access: \(CGPreflightPostEventAccess())  ListenEvent access: \(CGPreflightListenEventAccess())")
@@ -77,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.badges?.refresh()
         }
         tracker.onCaptureDenied = { [weak self] pw in
-            PinFeedbackHUD.show("Unpinned: allow Screen Recording", windowID: CGWindowID(pw.windowID))
+            PinFeedbackHUD.show("Unperched: allow Screen Recording", windowID: CGWindowID(pw.windowID))
             self?.showSetup()
         }
         tracker.onNeedsScreenRecording = { [weak self] in self?.showSetup() }
@@ -157,8 +163,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // as Bartender look items up by the default name and did not find this
         // one under a custom name. They also go by the label and tooltip, so
         // those are the app's name and never change.
-        statusItem?.button?.toolTip = "WindowPin"
-        statusItem?.button?.setAccessibilityLabel("WindowPin")
+        statusItem?.button?.toolTip = "Perch"
+        statusItem?.button?.setAccessibilityLabel("Perch")
         updateIcon()
 
         let menu = NSMenu()
@@ -197,12 +203,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             glyphSize: MenuBarGlyph.size,
             tint: ownInk ? .labelColor : nil
         )
-        image.accessibilityDescription = "WindowPin"
+        image.accessibilityDescription = "Perch"
         statusItem?.button?.image = image
         // The label and tooltip never change, because menu bar managers find
         // the item by them; the state goes in the value.
         statusItem?.button?.setAccessibilityValue(
-            warning ? "Needs permission" : hasPinned ? "Window pinned" : nil)
+            warning ? "Needs permission" : hasPinned ? "Window perched" : nil)
     }
 
     /// Redraw the icon if a permission has been granted or lost since it was
@@ -235,7 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
-        // The last other app is only a fallback, for when WindowPin itself is
+        // The last other app is only a fallback, for when Perch itself is
         // in front. Its focused window is asked for now, so a window closed
         // since is never offered.
         let remembered = lastForeignApp.flatMap { $0.isTerminated ? nil : WindowDetector.focusedWindow(of: $0) }
@@ -245,8 +251,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let isPinned = tracker.isPinned(windowID: fw.windowID)
             let displayName = fw.windowTitle.isEmpty ? fw.ownerName : fw.windowTitle
             let label = isPinned
-                ? "Unpin \"\(truncate(displayName, max: 30))\""
-                : "Pin \"\(truncate(displayName, max: 30))\""
+                ? "Unperch \"\(truncate(displayName, max: 30))\""
+                : "Perch \"\(truncate(displayName, max: 30))\""
             let item = NSMenuItem(title: label, action: #selector(toggleFrontmost), keyEquivalent: "")
             item.representedObject = fw
             // Shown so the shortcut can be learnt from here.
@@ -256,23 +262,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             menu.addItem(item)
         } else {
-            let item = NSMenuItem(title: "No window to pin", action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: "No window to perch", action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
         }
 
         if !tracker.pinnedWindows.isEmpty {
             menu.addItem(NSMenuItem.separator())
-            menu.addItem(NSMenuItem.sectionHeader(title: "Pinned"))
+            menu.addItem(NSMenuItem.sectionHeader(title: "Perched"))
             let front = targetWindow?.ownerPID
             for pw in PinPolicy.menuOrder(tracker.pinnedWindows, frontPID: front) {
                 let item = NSMenuItem(title: pw.displayLabel, action: #selector(unpinMenuItem(_:)), keyEquivalent: "")
                 item.representedObject = pw.windowID
                 item.state = .on
-                item.toolTip = "Unpin"
+                item.toolTip = "Unperch"
                 menu.addItem(item)
             }
-            menu.addItem(NSMenuItem(title: "Unpin All", action: #selector(unpinAllAction), keyEquivalent: ""))
+            menu.addItem(NSMenuItem(title: "Unperch All", action: #selector(unpinAllAction), keyEquivalent: ""))
         }
 
         menu.addItem(NSMenuItem.separator())
@@ -280,10 +286,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let settingsItem = NSMenuItem(title: "Settings\u{2026}", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
-        let aboutItem = NSMenuItem(title: "About WindowPin", action: #selector(openAbout), keyEquivalent: "")
+        let aboutItem = NSMenuItem(title: "About Perch", action: #selector(openAbout), keyEquivalent: "")
         aboutItem.target = self
         menu.addItem(aboutItem)
-        menu.addItem(NSMenuItem(title: "Quit WindowPin", action: #selector(quit), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit Perch", action: #selector(quit), keyEquivalent: "q"))
     }
 
     // MARK: - Actions
@@ -298,7 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func unpinMenuItem(_ sender: NSMenuItem) {
         guard let windowID = sender.representedObject as? UInt32 else { return }
         tracker.unpin(windowID: windowID, byUser: true)
-        PinFeedbackHUD.show("Unpinned", windowID: CGWindowID(windowID))
+        PinFeedbackHUD.show("Unperched", windowID: CGWindowID(windowID))
     }
 
     @objc private func unpinAllAction() {
@@ -313,14 +319,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - About & Settings
 
     @objc private func openAbout() {
-        JorvikAboutView.showWindow(appName: "WindowPin")
+        JorvikAboutView.showWindow(appName: "Perch")
     }
 
     @objc private func openSettings() {
         let trackerRef = tracker
         let delegate = self
-        JorvikSettingsView.showWindow(appName: "WindowPin", showsLaunchAtLogin: false) {
-            WindowPinSettingsContent(tracker: trackerRef, delegate: delegate)
+        JorvikSettingsView.showWindow(appName: "Perch", showsLaunchAtLogin: false) {
+            PerchSettingsContent(tracker: trackerRef, delegate: delegate)
         }
     }
 
@@ -429,7 +435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let wasPinned = tracker.isPinned(windowID: fw.windowID)
         tracker.toggle(window: fw)
         showPinFeedback(wasPinned: wasPinned, window: fw)
-        let action = wasPinned ? "Unpinned" : "Pinned"
+        let action = wasPinned ? "Unperched" : "Perched"
         let title = fw.windowTitle.isEmpty ? fw.ownerName : fw.windowTitle
         wplog("togglePin: \(action) '\(title)' (wid=\(fw.windowID))")
     }
@@ -440,7 +446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Recording. The setup window, which the tracker has just asked for,
         // says so; a badge under it would only be in the way.
         guard isPinned || wasPinned else { return }
-        PinFeedbackHUD.show(isPinned ? "📌  Pinned" : "Unpinned", windowID: CGWindowID(fw.windowID))
+        PinFeedbackHUD.show(isPinned ? "Perched" : "Unperched", windowID: CGWindowID(fw.windowID))
     }
 
     // MARK: - Shortcut configuration
@@ -484,7 +490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         JorvikHotkeyRegistry.publish([
-            JorvikHotkey(actionTitle: "Toggle Pin",
+            JorvikHotkey(actionTitle: "Perch or Unperch",
                          keyCode: shortcutKeyCode,
                          modifiers: shortcutModifiers,
                          activeContext: .anywhere),

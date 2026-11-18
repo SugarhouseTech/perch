@@ -5,17 +5,17 @@ import Foundation
 // MARK: - Logging
 
 // Diagnostic logging — off by default, enabled per-machine via:
-//   defaults write tech.sugarhouse.WindowPin debugLogging -bool YES
-//   defaults delete tech.sugarhouse.WindowPin debugLogging   # turn off
+//   defaults write tech.sugarhouse.Perch debugLogging -bool YES
+//   defaults delete tech.sugarhouse.Perch debugLogging   # turn off
 // (A local build made with its own LOCAL_BUNDLE_ID uses that identifier here.)
 // When on, timestamped lines are appended to
-//   ~/Library/Logs/WindowPin/windowpin.log
+//   ~/Library/Logs/Perch/perch.log
 //
 // Never write to Console/stderr or /tmp. This mirrors the Jorvik logging
 // convention (Ballast/Sources/Log.swift): a symlink-safe append to a 0700
 // directory, gated behind a UserDefaults flag read on every call.
 //
-// What this replaced: an ungated FileHandle on /tmp/windowpin.log, opened with
+// What this replaced: an ungated FileHandle on /tmp/perch.log, opened with
 // `createFile`, which TRUNCATED the log on every launch and wrote for every
 // user whether they wanted it or not. /tmp is shared and world-readable, and
 // this log records PINNED WINDOW TITLES.
@@ -23,13 +23,13 @@ nonisolated let wpLogDirectory: URL = {
     let logs = FileManager.default
         .urls(for: .libraryDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("Logs", isDirectory: true)
-        .appendingPathComponent("WindowPin", isDirectory: true)
+        .appendingPathComponent("Perch", isDirectory: true)
     try? FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true,
                                              attributes: [.posixPermissions: 0o700])
     return logs
 }()
-nonisolated private let wpLogPath = wpLogDirectory.appendingPathComponent("windowpin.log").path
-nonisolated private let wpLogQueue = DispatchQueue(label: "tech.sugarhouse.WindowPin.log")
+nonisolated private let wpLogPath = wpLogDirectory.appendingPathComponent("perch.log").path
+nonisolated private let wpLogQueue = DispatchQueue(label: "tech.sugarhouse.Perch.log")
 nonisolated private let wpLogFmt: DateFormatter = {
     let f = DateFormatter()
     f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
@@ -193,7 +193,7 @@ enum WindowLevelManager {
     // window-list calls, so `AXScroller` uses them from its own queue.
     //
     // What comes back from another app is whatever that app chose to send. A
-    // forced cast of it to the expected type crashes WindowPin when an app
+    // forced cast of it to the expected type crashes Perch when an app
     // answers with something else, so the type is checked first.
 
     nonisolated static func element(from ref: AnyObject?) -> AXUIElement? {

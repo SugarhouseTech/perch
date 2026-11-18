@@ -11,7 +11,7 @@ nonisolated enum EventMapping {
     ///
     /// A delta that is not a number counts as none, and one too large for the
     /// event is cut to the largest it can carry: converting either straight
-    /// to Int32 would crash WindowPin on one odd report from a device.
+    /// to Int32 would crash Perch on one odd report from a device.
     static func scrollSteps(_ delta: CGFloat) -> Int32 {
         guard !delta.isNaN, delta != 0 else { return 0 }
         let rounded = min(max(delta.rounded(), CGFloat(Int32.min)), CGFloat(Int32.max))

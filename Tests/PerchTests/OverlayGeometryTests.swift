@@ -1,6 +1,6 @@
 import CoreGraphics
 import Testing
-@testable import WindowPin
+@testable import Perch
 
 private typealias G = OverlayGeometry
 
@@ -269,7 +269,7 @@ private func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGR
 
     static let target = rect(100, 200, 800, 600)
 
-    @Test func aWholeWindowPinCoversTheWindow() {
+    @Test func aWholePerchCoversTheWindow() {
         #expect(G.panelFrame(target: Self.target, crop: nil, movedOrigin: nil) == Self.target)
     }
 

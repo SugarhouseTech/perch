@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Intentionally empty. WindowPin is not sandboxed and loads no outside code,
+  Intentionally empty. Perch is not sandboxed and loads no outside code,
   so it needs no entitlements under the hardened runtime. Accessibility and
   Screen Recording are permissions the user grants, not entitlements.
 -->

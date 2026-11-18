@@ -1,7 +1,7 @@
 import SwiftUI
 import ScreenCaptureKit
 
-struct WindowPinSettingsContent: View {
+struct PerchSettingsContent: View {
     let tracker: PinnedWindowTracker
     let delegate: AppDelegate
 
@@ -29,15 +29,15 @@ struct WindowPinSettingsContent: View {
     /// there (see `WindowOverlay.forwardEvents`), so only scrolling is
     /// passed on.
     private static var interactionTitle: String {
-        if #available(macOS 27, *) { return "Scroll pins in place" }
-        return "Click and scroll pins in place"
+        if #available(macOS 27, *) { return "Scroll perched windows in place" }
+        return "Click and scroll perched windows in place"
     }
 
     private static var interactionCaption: String {
         if #available(macOS 27, *) {
-            return "Scrolling over a pin scrolls its window, without leaving the app you're in. Clicking a pin always takes you to its window."
+            return "Scrolling over a perched window scrolls it, without leaving the app you're in. A click always takes you to the window itself."
         }
-        return "Clicks and scrolls on a pin go to its window, without leaving the app you're in. \u{2318}-click a pin to go to its window instead. When this is off, any click takes you to the window."
+        return "Clicks and scrolls on a perched window go to it, without leaving the app you're in. \u{2318}-click to go to the window itself instead. When this is off, any click takes you to the window."
     }
 
     /// Only the tick is green: green text is too faint to read on a light window.
@@ -55,11 +55,11 @@ struct WindowPinSettingsContent: View {
     // Ordered by how often each is likely to be wanted: pinning itself, how
     // pins behave, then the app, permissions, and per-app fixes last.
     // The words say what the user sees and gets, in the menu's terms: a
-    // "pin" is the floating copy of a window.
+    // perched window is the floating copy of a window.
     var body: some View {
-        Section("Pinning") {
+        Section("Perching") {
             JorvikShortcutRecorder(
-                label: "Pin or unpin the window you're using",
+                label: "Perch or unperch the window you're using",
                 keyCode: Binding(
                     get: { delegate.shortcutKeyCode },
                     set: { delegate.shortcutKeyCode = $0 }
@@ -81,30 +81,30 @@ struct WindowPinSettingsContent: View {
                 onRecordingChanged: { delegate.setHotkeySuspended($0) }
             )
             Toggle(isOn: $badgeFocused) {
-                Text("Show a pin button on the window you're using")
-                Text("A small pin at the right of the title bar. Click it to pin the window.")
+                Text("Show a perch button on the window you're using")
+                Text("A small button at the right of the title bar. Click it to perch the window.")
             }
             Toggle(isOn: $badgePinned) {
-                Text("Show a pin button on pinned windows")
-                Text("Click it to unpin.")
+                Text("Show a perch button on perched windows")
+                Text("Click it to unperch.")
             }
             Picker(selection: $unpinBehavior) {
                 ForEach(UnpinBehavior.allCases, id: \.self) { Text($0.title).tag($0) }
             } label: {
-                Text("When you unpin a window")
-                Text("Bring it forward puts the window in front, ready to use. Hide it just removes the pin, and the window stays where it was, which may be behind other windows.")
+                Text("When you unperch a window")
+                Text("Bring it forward puts the window in front, ready to use. Hide it just lets go of the copy, and the window stays where it was, which may be behind other windows.")
             }
         }
 
-        Section("Pins") {
+        Section("Perched Windows") {
             Toggle(isOn: $forwardEvents) {
                 Text(Self.interactionTitle)
                 Text(Self.interactionCaption)
             }
 
             Toggle(isOn: $pinToAllSpaces) {
-                Text("Show pins on every desktop")
-                Text("When this is off, a pin appears only on the desktop where you made it. Desktops are the spaces you switch between in Mission Control.")
+                Text("Show perched windows on every desktop")
+                Text("When this is off, a perched window appears only on the desktop where you perched it. Desktops are the spaces you switch between in Mission Control.")
             }
             .onChange(of: pinToAllSpaces) { _, _ in
                 tracker.updateAllSpaces()
@@ -121,7 +121,7 @@ struct WindowPinSettingsContent: View {
                 Text("60 fps").tag(60.0)
             } label: {
                 Text("Update speed")
-                Text("How many times a second (fps) a pin can redraw, which matters for video and animation. A pin only redraws when its window changes, so a high setting costs nothing while the window is still.")
+                Text("How many times a second (fps) a perched window can redraw, which matters for video and animation. It only redraws when its window changes, so a high setting costs nothing while the window is still.")
             }
             .onChange(of: captureRate) { _, _ in
                 tracker.updateCaptureRate()
@@ -146,7 +146,7 @@ struct WindowPinSettingsContent: View {
                 }
             } label: {
                 Text("Accessibility")
-                Text("Lets the shortcut and pin buttons work, pins scroll, and windows come to the front.")
+                Text("Lets the shortcut and perch buttons work, perched windows scroll, and windows come to the front.")
             }
             // The Settings window is cached, so these watchers would otherwise poll for the
             // life of the app once Settings had been opened.
@@ -167,7 +167,7 @@ struct WindowPinSettingsContent: View {
                 }
             } label: {
                 Text("Screen Recording")
-                Text("Lets a pin show its window's live contents. WindowPin looks only at windows you pin, and saves and sends nothing.")
+                Text("Lets a perched window show its live contents. Perch looks only at windows you perch, and saves and sends nothing.")
             }
         }
 

@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import WindowPin
+@testable import Perch
 
 // Time is always passed in. Where an exact boundary matters the times start at
 // 0, so the arithmetic is exact: 100.05 - 100 is a hair under 0.05.

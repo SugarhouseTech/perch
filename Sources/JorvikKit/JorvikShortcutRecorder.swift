@@ -148,7 +148,7 @@ struct JorvikShortcutRecorder: View {
     }
 
     private func startRecording() {
-        // Disable event tap if provided (e.g. WindowPin's CGEvent tap)
+        // Disable event tap if provided (e.g. Perch's CGEvent tap)
         if let tap = eventTapProvider?() ?? eventTapToDisable {
             CGEvent.tapEnable(tap: tap, enable: false)
             disabledTap = tap
