@@ -159,11 +159,7 @@ struct MenuBarPillToggle: View {
     var onChanged: (() -> Void)?
 
     var body: some View {
-        Toggle(isOn: $enabled) {
-            Text("Background behind the menu bar icon")
-            Text("Makes the icon easier to see on a busy wallpaper.")
-                .font(.settingsHelp)
-        }
+        Toggle("Background behind the menu bar icon", isOn: $enabled)
             .onChange(of: enabled) { _, newValue in
                 UserDefaults.standard.set(newValue, forKey: "menuBarPillEnabled")
                 onChanged?()

@@ -60,8 +60,6 @@ struct BadgeOffsetSettings: View {
                     set: { BadgeOffsets.setIgnored($0, for: id); reload() }
                 )) {
                     Text("Ignore this app")
-                    Text("No perch buttons on its windows, and its windows can't be perched.")
-                        .font(.settingsHelp)
                 }
                 Group {
                     HStack(spacing: 8) {
@@ -85,9 +83,7 @@ struct BadgeOffsetSettings: View {
                         get: { onlyWhenPinned.contains(id) },
                         set: { BadgeOffsets.setOnlyWhenPinned($0, for: id); reload() }
                     )) {
-                        Text("Show the button only on perched windows")
-                        Text("Hides the button on the window you're using, where it gets in the way. Perch those windows with the shortcut or the menu.")
-                            .font(.settingsHelp)
+                        Text("Show the button only when window is perched")
                     }
                 }
                 .disabled(isIgnored)
