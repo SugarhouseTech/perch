@@ -1,13 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// The window that walks through the two permissions WindowPin needs, and
+/// The window that walks through the two permissions Perch needs, and
 /// shows each one turn green as it is granted.
 ///
-/// It is shown the first time WindowPin runs, at every launch while either
+/// It is shown the first time Perch runs, at every launch while either
 /// permission is missing, and when a pin is refused for want of Screen
 /// Recording. Before this, a refused pin opened System Settings every time,
-/// and nothing in WindowPin said which of the two was missing or that one of
+/// and nothing in Perch said which of the two was missing or that one of
 /// them can need a restart to take effect.
 enum SetupWindow {
 
@@ -18,7 +18,7 @@ enum SetupWindow {
     static var isScreenRecordingGranted: Bool { CGPreflightScreenCaptureAccess() }
     static var isMissingPermission: Bool { !isAccessibilityGranted || !isScreenRecordingGranted }
 
-    /// Whether to show the window as WindowPin starts: on its first run, as a
+    /// Whether to show the window as Perch starts: on its first run, as a
     /// welcome, and afterwards only while something is missing.
     static var shouldShowAtLaunch: Bool {
         isMissingPermission || !UserDefaults.standard.bool(forKey: shownKey)
@@ -26,7 +26,7 @@ enum SetupWindow {
 
     /// - Parameters:
     ///   - shortcut: the current shortcut, for the closing line.
-    ///   - activate: bring WindowPin to the front with it. False at launch,
+    ///   - activate: bring Perch to the front with it. False at launch,
     ///     so it comes up without taking the keyboard from what the user was doing.
     static func show(shortcut: String, activate: Bool = true) {
         UserDefaults.standard.set(true, forKey: shownKey)
@@ -38,7 +38,7 @@ enum SetupWindow {
             SetupWindow.window?.close()
         })
         let w = NSWindow(contentViewController: controller)
-        w.title = "WindowPin Setup"
+        w.title = "Perch Setup"
         w.styleMask = [.titled, .closable]
         w.isReleasedWhenClosed = false
         w.setContentSize(controller.view.fittingSize)
@@ -81,10 +81,10 @@ private struct SetupView: View {
                     .frame(width: 56, height: 56)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(allGranted ? "WindowPin is ready" : "Set up WindowPin")
+                    Text(allGranted ? "Perch is ready" : "Set up Perch")
                         .font(.title2.weight(.semibold))
                         .accessibilityAddTraits(.isHeader)
-                    Text("WindowPin keeps a window in view above your other apps. macOS asks your permission for the two things that takes.")
+                    Text("Perch keeps a window in view above your other apps. macOS asks your permission for the two things that takes.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -94,7 +94,7 @@ private struct SetupView: View {
             PermissionRow(
                 symbol: "keyboard",
                 title: "Accessibility",
-                reason: "For the keyboard shortcut, the pin buttons on windows, and bringing a pinned window forward when you click its pin.",
+                reason: "For the keyboard shortcut, the perch buttons on windows, and bringing a window forward when you click its perched copy.",
                 granted: accessibility.isGranted,
                 buttonTitle: askedAccessibility ? "Open System Settings" : "Allow\u{2026}",
                 action: {
@@ -110,7 +110,7 @@ private struct SetupView: View {
             PermissionRow(
                 symbol: "rectangle.dashed.badge.record",
                 title: "Screen Recording",
-                reason: "A pin is a live picture of the window. WindowPin films only the windows you pin, only while their pins are showing, and nothing is saved or sent anywhere.",
+                reason: "A perched window is a live picture of the real one. Perch films only the windows you perch, only while they are showing, and nothing is saved or sent anywhere.",
                 granted: screenRecording.isGranted,
                 buttonTitle: askedScreenRecording ? "Open System Settings" : "Allow\u{2026}",
                 action: {
@@ -119,12 +119,12 @@ private struct SetupView: View {
                     } else {
                         askedScreenRecording = true
                         // Shows the system's prompt the first time ever, and
-                        // adds WindowPin to the list in System Settings.
+                        // adds Perch to the list in System Settings.
                         _ = CGRequestScreenCaptureAccess()
                     }
                 },
                 note: askedScreenRecording && !screenRecording.isGranted
-                    ? ("Already switched it on? macOS applies it when WindowPin restarts.", "Restart WindowPin", { SetupWindow.relaunch() })
+                    ? ("Already switched it on? macOS applies it when Perch restarts.", "Restart Perch", { SetupWindow.relaunch() })
                     : nil
             )
             // The window is kept, not released, when closed, so without this
@@ -136,12 +136,12 @@ private struct SetupView: View {
             HStack(alignment: .center) {
                 if allGranted {
                     Text(shortcut == "Not set"
-                         ? "Click the pin in a window's title bar to keep it on top."
-                         : "Press \(shortcut), or click the pin in a window's title bar, to keep that window on top.")
+                         ? "Click the perch button in a window's title bar to keep it on top."
+                         : "Press \(shortcut), or click the perch button in a window's title bar, to keep that window on top.")
                         .font(.callout)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Text("You can come back to this from the WindowPin menu, or by opening WindowPin again.")
+                    Text("You can come back to this from the Perch menu, or by opening Perch again.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

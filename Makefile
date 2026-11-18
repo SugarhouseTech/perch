@@ -1,18 +1,18 @@
-# WindowPin — pin windows above other apps.
+# Perch — keep any window perched above your other apps.
 #
 #   make test      unit tests
-#   make app       build .build/local/WindowPin.app
+#   make app       build .build/local/Perch.app
 #   make run       build it and open it
 #   make install   build it and copy it to /Applications
 #   make clean     remove the built app
 #
 # Needs nothing beyond the Xcode 26 command line tools (Swift 6.2) or later.
 
-BUNDLE_NAME      := WindowPin
-PRODUCT_NAME     := WindowPin.app
-BUNDLE_ID        := tech.sugarhouse.WindowPin
-SPM_PRODUCT      := WindowPin
-ENTITLEMENTS     := WindowPin.entitlements
+BUNDLE_NAME      := Perch
+PRODUCT_NAME     := Perch.app
+BUNDLE_ID        := tech.sugarhouse.Perch
+SPM_PRODUCT      := Perch
+ENTITLEMENTS     := Perch.entitlements
 
 # Personal settings (signing identity, bundle ID), kept out of the repo.
 -include local.mk

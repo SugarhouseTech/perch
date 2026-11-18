@@ -13,7 +13,7 @@ import Cocoa
 /// `AppDelegate` is `@MainActor` and top-level code is not isolated to it, so
 /// constructing the delegate there does not compile.
 @main
-enum WindowPinMain {
+enum PerchMain {
 
     @MainActor
     static func main() {

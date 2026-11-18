@@ -1,8 +1,17 @@
-# Working on WindowPin
+# Working on Perch
 
-WindowPin is a macOS menu bar app that keeps a live copy of another app's
+Perch is a macOS menu bar app that keeps a live copy of another app's
 window floating above everything else. It is built with SwiftPM, and the
 README covers what it does for users.
+
+Perch is its own app, published by Sugarhouse Tech (`tech.sugarhouse.Perch`).
+It began as a fork of WindowPin by Jorvik Software, released into the public
+domain, and has gone its own way since; nothing here goes back upstream. The
+README's Credits and the About window thank the original; keep that.
+
+Users perch and unperch windows. Say perch, perched and unperch in anything
+a user reads (menus, Settings, the setup window, the README). The code keeps
+"pin" for the mechanism (`PinPolicy`, `PinnedWindowTracker`), which is fine.
 
 ## Build and test
 
@@ -13,11 +22,11 @@ README covers what it does for users.
   Accessibility and Screen Recording grants. An ad hoc rebuild loses them;
   a Developer ID set in `local.mk` keeps them (see the README).
 - The debug log is turned on with
-  `defaults write tech.sugarhouse.WindowPin debugLogging -bool true` and written to
-  `~/Library/Logs/WindowPin/windowpin.log`.
-- `defaults write tech.sugarhouse.WindowPin windowSurvey -bool true` records each newly
+  `defaults write tech.sugarhouse.Perch debugLogging -bool true` and written to
+  `~/Library/Logs/Perch/perch.log`.
+- `defaults write tech.sugarhouse.Perch windowSurvey -bool true` records each newly
   focused window's kind (role, size, level; no titles) to
-  `~/Library/Logs/WindowPin/window-survey.tsv`, for deciding which windows
+  `~/Library/Logs/Perch/window-survey.tsv`, for deciding which windows
   should never get a pin button.
 
 ## Where logic lives, and how it is tested
@@ -70,7 +79,7 @@ on (see `Package.swift`), so the compiler checks which thread owns what.
 
 ## Quiet by default
 
-WindowPin runs all day. Nothing may poll while nothing is happening, and every
+Perch runs all day. Nothing may poll while nothing is happening, and every
 retry, recheck or restart needs a limit. When adding one, add a test that
 bounds how often it can fire.
 

@@ -1,6 +1,6 @@
 import AppKit
 import XCTest
-@testable import WindowPin
+@testable import Perch
 
 /// Pure logic that is reachable without changing Sources/. The crop maths in
 /// `WindowOverlay` (`clampedCrop`, the resize handling) is private to an

@@ -12,12 +12,12 @@ struct BadgeOffsetSettings: View {
     @State private var onlyWhenPinned = BadgeOffsets.onlyWhenPinned()
 
     var body: some View {
-        Section("Pin Button Placement") {
+        Section("Perch Button Placement") {
             LabeledContent {
                 addMenu
             } label: {
                 Text("Adjust for an app")
-                Text("WindowPin keeps the pin button clear of a title bar's own buttons. If it lands in the wrong place in an app, add the app here and slide the button to the right spot, measured from the window's right edge. Or tick Only when pinned to show it only on that app's pinned windows. Changes show the next time you switch to the app.")
+                Text("Perch keeps its button clear of a title bar's own buttons. If it lands in the wrong place in an app, add the app here and slide the button to the right spot, measured from the window's right edge. Or tick Only when perched to show it only on that app's perched windows. Changes show the next time you switch to the app.")
             }
             ForEach(Self.byName(offsets.keys), id: \.self) { id in
                 row(id)
@@ -68,7 +68,7 @@ struct BadgeOffsetSettings: View {
                 // The box before its words, as a checkbox is everywhere else:
                 // a form lays a toggle's own label out first.
                 HStack(spacing: 6) {
-                    Toggle("Only when pinned", isOn: Binding(
+                    Toggle("Only when perched", isOn: Binding(
                         get: { onlyWhenPinned.contains(id) },
                         set: { on in
                             BadgeOffsets.setOnlyWhenPinned(on, for: id)
@@ -78,9 +78,9 @@ struct BadgeOffsetSettings: View {
                     .toggleStyle(.checkbox)
                     .labelsHidden()
                     .frame(width: 16)
-                    Text("Only when pinned")
+                    Text("Only when perched")
                 }
-                .help("Show the button only on this app's pinned windows, to say they are pinned")
+                .help("Show the button only on this app's perched windows, to say they are perched")
             }
         }
     }

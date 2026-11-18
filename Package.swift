@@ -19,11 +19,11 @@ let swiftSettings: [SwiftSetting] = [
 ]
 
 let package = Package(
-    name: "WindowPin",
+    name: "Perch",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "WindowPin",
+            name: "Perch",
             path: "Sources",
             // An app runs on the main thread unless it says otherwise. The
             // pure logic (see AGENTS.md) is marked `nonisolated`, so tests
@@ -37,9 +37,9 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "WindowPinTests",
-            dependencies: ["WindowPin"],
-            path: "Tests/WindowPinTests",
+            name: "PerchTests",
+            dependencies: ["Perch"],
+            path: "Tests/PerchTests",
             swiftSettings: swiftSettings
         ),
     ]

@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>WindowPin</string>
+    <string>Perch</string>
     <key>CFBundleIdentifier</key>
-    <string>tech.sugarhouse.WindowPin</string>
+    <string>tech.sugarhouse.Perch</string>
     <key>CFBundleName</key>
-    <string>WindowPin</string>
+    <string>Perch</string>
     <key>CFBundleDisplayName</key>
-    <string>WindowPin</string>
+    <string>Perch</string>
     <key>CFBundleVersion</key>
     <string>1.0</string>
     <key>CFBundleShortVersionString</key>

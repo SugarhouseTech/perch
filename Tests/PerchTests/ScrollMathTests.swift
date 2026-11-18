@@ -1,6 +1,6 @@
 import CoreGraphics
 import Testing
-@testable import WindowPin
+@testable import Perch
 
 @Suite struct ScrollValueTests {
 

@@ -94,7 +94,7 @@ func drawIcon(pixels: Int) -> Data {
 }
 
 let fm = FileManager.default
-let iconset = fm.temporaryDirectory.appendingPathComponent("WindowPin.iconset")
+let iconset = fm.temporaryDirectory.appendingPathComponent("Perch.iconset")
 try? fm.removeItem(at: iconset)
 try! fm.createDirectory(at: iconset, withIntermediateDirectories: true)
 

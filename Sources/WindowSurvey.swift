@@ -8,7 +8,7 @@ import ApplicationServices
 /// Off by default, and local only: nothing leaves the machine. Turn on with
 ///   defaults write <bundle id> windowSurvey -bool true
 /// and each window is written once, when first focused, to
-///   ~/Library/Logs/WindowPin/window-survey.tsv
+///   ~/Library/Logs/Perch/window-survey.tsv
 /// Window titles are not recorded, only whether a window has one.
 enum WindowSurvey {
 

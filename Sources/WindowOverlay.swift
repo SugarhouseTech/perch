@@ -37,7 +37,7 @@ class WindowOverlay: NSPanel {
     private let contentLayer = CALayer()
     private var scWindow: SCWindow?
     private var stream: SCStream?
-    private let sampleQueue = DispatchQueue(label: "tech.sugarhouse.WindowPin.frames")
+    private let sampleQueue = DispatchQueue(label: "tech.sugarhouse.Perch.frames")
     /// Retains the pixel buffer whose IOSurface the layer currently displays,
     /// so ScreenCaptureKit can't recycle it out from under the layer.
     private var displayedFrame: CVPixelBuffer?
@@ -76,7 +76,7 @@ class WindowOverlay: NSPanel {
     /// A press AppKit took (a resize) is in progress; its drags and release
     /// go to AppKit too.
     private var systemPressInProgress = false
-    /// True while WindowPin itself is setting the panel's frame, so that the
+    /// True while Perch itself is setting the panel's frame, so that the
     /// resize observer only reacts to the user resizing a cropped pin.
     private var applyingFrame = false
     /// The panel's frame after the last change that was accounted for, so a

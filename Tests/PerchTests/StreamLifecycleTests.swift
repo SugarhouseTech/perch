@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import WindowPin
+@testable import Perch
 
 private typealias L = StreamLifecycle
 

@@ -7,7 +7,7 @@ import AppKit
 ///   its app.
 /// - On the window you are working in, a faint pin: click it to pin that window.
 ///
-/// Each badge is WindowPin's own small window, ordered just above the window it
+/// Each badge is Perch's own small window, ordered just above the window it
 /// belongs to, so anything covering that window covers the badge too. The one
 /// on the window in use sits a layer up, as nothing ordinary covers that
 /// window. Both kinds can be turned off in Settings.
@@ -46,7 +46,7 @@ final class PinBadgeController {
     // a window moving: it gets one check, and is followed only for as long as
     // the button stays down.
     //
-    // This used to be one timer, ten times a second, for as long as WindowPin
+    // This used to be one timer, ten times a second, for as long as Perch
     // was running, which kept an app that is idle nearly all day awake.
 
     /// Runs ten times a second, only for a moment after something changed and
@@ -93,7 +93,7 @@ final class PinBadgeController {
         slots.offsets = BadgeOffsets.all()
 
         // Mouse buttons need no permission to watch, unlike keys. Clicks on
-        // WindowPin's own windows are not reported here; a click on a badge
+        // Perch's own windows are not reported here; a click on a badge
         // changes the pinned set, which refreshes by itself.
         _ = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .leftMouseUp]
@@ -448,12 +448,12 @@ private final class BadgeView: NSView {
         addTrackingArea(NSTrackingArea(rect: .zero,
                                        options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                                        owner: self))
-        toolTip = pinned ? "Unpin this window" : "Pin this window on top"
+        toolTip = pinned ? "Unperch this window" : "Perch this window on top"
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    // The click must work while another app is active, without activating WindowPin.
+    // The click must work while another app is active, without activating Perch.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) { action() }
     override func mouseEntered(with event: NSEvent) { hovering = true }
