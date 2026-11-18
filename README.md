@@ -164,7 +164,7 @@ earlier name, are carried over the first time Perch runs.
 Perch needs two permissions, both in System Settings → Privacy & Security.
 The setup window asks for them on first run, comes back at launch while
 either is missing, and can be opened from the menu with **Finish Setting
-Up…**. While one is missing, the menu bar icon has an orange dot.
+Up…**. While one is missing, the menu bar icon has a red dot.
 
 - **Accessibility**: for the keyboard shortcut, the perch buttons, scrolling
   perched windows and bringing windows to the front.

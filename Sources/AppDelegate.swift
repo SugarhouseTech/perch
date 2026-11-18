@@ -190,11 +190,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let hasPinned = !tracker.pinnedWindows.isEmpty
         let warning = SetupWindow.isMissingPermission
         iconShowsWarning = warning
-        // The orange dot needs an image AppKit will not recolour, so with a
-        // warning the image is not a template, and the pin is drawn in the
-        // menu bar's own text colour instead. The pill picks a colour that
-        // contrasts with itself either way.
-        let ownInk = warning && !JorvikMenuBarPill.isEnabled
+        // The robin's orange breast (and the red warning dot) need an image
+        // AppKit will not recolour, so the image is never a template, and the
+        // bird is drawn in the menu bar's own text colour instead. The pill
+        // picks a colour that contrasts with itself.
+        let ownInk = !JorvikMenuBarPill.isEnabled
         let image = JorvikMenuBarPill.icon(
             drawGlyph: { @Sendable rect, color in
                 let ink = ownInk ? Self.menuBarInk() : color
@@ -232,7 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
         refreshPermissionWarning()
 
-        // First, while it stands in the way: the menu bar icon's orange dot
+        // First, while it stands in the way: the menu bar icon's red dot
         // points here.
         if SetupWindow.isMissingPermission {
             let setupItem = NSMenuItem(title: "\u{26A0}\u{FE0E} Finish Setting Up\u{2026}", action: #selector(showSetup), keyEquivalent: "")
