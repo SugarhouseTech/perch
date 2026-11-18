@@ -4,7 +4,9 @@
 #   make app       build .build/local/Perch.app
 #   make run       build it and open it
 #   make install   build it and copy it to /Applications
-#   make clean     remove the built app
+#   make release   notarised universal build, zipped for download
+#                  (scripts/release.sh; needs a Developer ID, see there)
+#   make clean     remove the built apps
 #
 # Needs nothing beyond the Xcode 26 command line tools (Swift 6.2) or later.
 
@@ -36,7 +38,7 @@ INSTALL_DIR      ?= /Applications
 LSREGISTER       := /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 PLISTBUDDY       := /usr/libexec/PlistBuddy
 
-.PHONY: app install run test clean
+.PHONY: app install run test release clean
 
 # Unit tests: the logic, with no windows, permissions or screen capture.
 # Swift Testing runs them in parallel; the older XCTest suites run alongside.
@@ -73,5 +75,8 @@ run: app
 	pkill -f "$(CURDIR)/$(LOCAL_APP)/Contents/MacOS/" && sleep 1 || true; \
 	open "$(LOCAL_APP)"
 
+release:
+	LOCAL_SIGN_ID="$(LOCAL_SIGN_ID)" scripts/release.sh
+
 clean:
-	rm -rf .build/local
+	rm -rf .build/local .build/release-app
