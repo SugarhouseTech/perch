@@ -150,6 +150,12 @@ struct JorvikLaunchAtLoginToggle: View {
     }
 }
 
+/// The settings window, once shown, for an app that needs to know when it
+/// closes.
+enum JorvikSettingsWindow {
+    static var current: NSWindow? { JorvikSettingsWindowCache.existingWindow }
+}
+
 /// Non-generic cache for the settings window instance. `JorvikSettingsView`
 /// is generic over the app-specific settings type, and Swift doesn't allow
 /// static stored properties inside generic types — so the cache sits here.
@@ -307,4 +313,10 @@ private enum JorvikSettingsMetrics {
     /// See `JorvikSettingsView.scrollToTop` for why this is a window and not a
     /// single moment.
     static let scrollSettleDelays: [Double] = [0, 0.05, 0.25]
+}
+
+extension Font {
+    /// A setting's description, under its title: a point larger than the
+    /// form's own secondary text, which was hard to read.
+    static let settingsHelp = Font.system(size: NSFont.smallSystemFontSize + 1)
 }

@@ -2,22 +2,24 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The apps whose pin button sits at a distance of their own: see
-/// `BadgeOffsets`. A row per app with a slider, and a menu of the running
-/// apps to add one.
+/// Apps Perch treats specially, one row each: ignore the app entirely, or
+/// move its perch button, or show the button only once a window is perched.
+/// Built-in rows (`BadgeOffsets.builtIn`) appear like any other.
 struct BadgeOffsetSettings: View {
 
-    /// A copy of what is stored, so the rows redraw as it changes.
+    /// Copies of what is stored, so the rows redraw as it changes.
     @State private var offsets = BadgeOffsets.all()
     @State private var onlyWhenPinned = BadgeOffsets.onlyWhenPinned()
+    @State private var ignored = BadgeOffsets.ignored()
 
     var body: some View {
-        Section("Perch Button Placement") {
+        Section("Apps") {
             LabeledContent {
                 addMenu
             } label: {
-                Text("Adjust for an app")
-                Text("Perch keeps its button clear of a title bar's own buttons. If it lands in the wrong place in an app, add the app here and slide the button to the right spot, measured from the window's right edge. Or tick Only when perched to show it only on that app's perched windows. Changes show the next time you switch to the app.")
+                Text("Settings for an app")
+                Text("Add an app to have Perch ignore it, to move its perch button where it lands in the wrong place, or to show the button only once a window is perched. Changes show the next time you switch to the app.")
+                    .font(.settingsHelp)
             }
             ForEach(Self.byName(offsets.keys), id: \.self) { id in
                 row(id)
@@ -27,62 +29,78 @@ struct BadgeOffsetSettings: View {
 
     private func row(_ id: String) -> some View {
         let app = Self.app(id)
-        return LabeledContent {
-            HStack {
-                Slider(value: Binding(
-                    get: { offsets[id] ?? BadgeOffsets.range.lowerBound },
-                    // Whole points. Not a step on the slider, which draws a
-                    // tick mark for every one.
-                    set: { value in
-                        offsets[id] = value.rounded()
-                        BadgeOffsets.set(value.rounded(), for: id)
-                    }
-                ), in: BadgeOffsets.range)
-                .frame(minWidth: 140)
-                Text("\(Int(offsets[id] ?? 0)) pt")
-                    .monospacedDigit()
-                    .frame(width: 48, alignment: .trailing)
+        let isIgnored = ignored.contains(id)
+        let distance = Binding<Double>(
+            get: { offsets[id] ?? BadgeOffsets.range.lowerBound },
+            set: { value in
+                let kept = BadgeOffsets.validated(value)
+                offsets[id] = kept
+                BadgeOffsets.set(kept, for: id)
+            })
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(nsImage: app.icon)
+                    .frame(width: 16, height: 16)
+                Text(app.name).fontWeight(.medium)
+                Spacer()
                 Button {
                     BadgeOffsets.remove(id)
-                    offsets = BadgeOffsets.all()
-                    onlyWhenPinned = BadgeOffsets.onlyWhenPinned()
+                    reload()
                 } label: {
                     Image(systemName: "minus.circle")
                 }
                 .buttonStyle(.borderless)
-                .help("Place the button automatically again, on every window")
+                .help("Forget this app's settings")
                 .accessibilityLabel("Remove \(app.name)")
             }
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                // Laid out like the checkbox row below, a 16 point glyph and
-                // then the words, so the two lines start at the same place.
-                // A Label leaves a wider gap after its icon than a checkbox.
-                HStack(spacing: 6) {
-                    Image(nsImage: app.icon)
-                        .frame(width: 16, height: 16)
-                    Text(app.name)
+            // Indented under the name, past the icon, as settings of this app.
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle(isOn: Binding(
+                    get: { isIgnored },
+                    set: { BadgeOffsets.setIgnored($0, for: id); reload() }
+                )) {
+                    Text("Ignore this app")
+                    Text("No perch buttons on its windows, and its windows can't be perched.")
+                        .font(.settingsHelp)
                 }
-                // The distance still counts with this on: a pinned window
-                // shows its button there.
-                // The box before its words, as a checkbox is everywhere else:
-                // a form lays a toggle's own label out first.
-                HStack(spacing: 6) {
-                    Toggle("Only when perched", isOn: Binding(
+                Group {
+                    HStack(spacing: 8) {
+                        Text("Button position")
+                        // Whole points. Not a step on the slider, which would
+                        // draw a tick mark for every one.
+                        Slider(value: distance, in: BadgeOffsets.range)
+                            .frame(minWidth: 120)
+                        // Typed, for the same distance in several apps. Both
+                        // controls share one binding, so they always agree.
+                        TextField("", value: distance, format: .number.precision(.fractionLength(0)))
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 52)
+                            .accessibilityLabel("\(app.name) button position, points from the right edge")
+                        Text("pt")
+                            .foregroundStyle(.secondary)
+                    }
+                    .help("Distance of the perch button from the window's right edge")
+                    Toggle(isOn: Binding(
                         get: { onlyWhenPinned.contains(id) },
-                        set: { on in
-                            BadgeOffsets.setOnlyWhenPinned(on, for: id)
-                            onlyWhenPinned = BadgeOffsets.onlyWhenPinned()
-                        }
-                    ))
-                    .toggleStyle(.checkbox)
-                    .labelsHidden()
-                    .frame(width: 16)
-                    Text("Only when perched")
+                        set: { BadgeOffsets.setOnlyWhenPinned($0, for: id); reload() }
+                    )) {
+                        Text("Show the button only on perched windows")
+                        Text("Hides the button on the window you're using, where it gets in the way. Perch those windows with the shortcut or the menu.")
+                            .font(.settingsHelp)
+                    }
                 }
-                .help("Show the button only on this app's perched windows, to say they are perched")
+                .disabled(isIgnored)
             }
+            .padding(.leading, 22)
         }
+        .padding(.vertical, 2)
+    }
+
+    private func reload() {
+        offsets = BadgeOffsets.all()
+        onlyWhenPinned = BadgeOffsets.onlyWhenPinned()
+        ignored = BadgeOffsets.ignored()
     }
 
     private var addMenu: some View {
