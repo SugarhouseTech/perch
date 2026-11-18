@@ -108,7 +108,7 @@ public struct MenuBarVisibilitySettings: View {
                     }
                 if !showIcon {
                     Text("Re-open \(appName) from your Applications folder to bring the icon back.")
-                        .font(.caption)
+                        .font(.settingsHelp)
                         .foregroundStyle(.secondary)
                 }
             }

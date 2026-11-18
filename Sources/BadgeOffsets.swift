@@ -23,6 +23,9 @@ nonisolated enum BadgeOffsets {
     /// that pins a window is left out; the one saying a window is pinned
     /// never is, as a pinned window with no sign of it would be a mystery.
     static let onlyWhenPinnedKey = "badgeOnlyWhenPinned"
+    /// Apps Perch leaves alone: no perch buttons on their windows, and their
+    /// windows cannot be perched. One already perched can still be unperched.
+    static let ignoredKey = "ignoredApps"
 
     /// Where the automatic placement last put the button in each app, so an
     /// app added in Settings starts from there rather than from the corner.
@@ -83,6 +86,25 @@ nonisolated enum BadgeOffsets {
         defaults.set(ids.sorted(), forKey: onlyWhenPinnedKey)
     }
 
+    static func ignored(in defaults: UserDefaults = .standard) -> Set<String> {
+        Set(defaults.stringArray(forKey: ignoredKey) ?? [])
+    }
+
+    static func setIgnored(_ on: Bool, for bundleID: String, in defaults: UserDefaults = .standard) {
+        var ids = ignored(in: defaults)
+        guard ids.contains(bundleID) != on else { return }
+        if on { ids.insert(bundleID) } else { ids.remove(bundleID) }
+        defaults.set(ids.sorted(), forKey: ignoredKey)
+    }
+
+    /// A distance dragged or typed in Settings: whole points, within the range.
+    /// The slider and the number beside it both go through this, so they
+    /// always agree.
+    static func validated(_ distance: Double) -> Double {
+        guard distance.isFinite else { return range.lowerBound }
+        return min(max(distance.rounded(), range.lowerBound), range.upperBound)
+    }
+
     /// The distance an app added in Settings starts at: its built-in one, or
     /// `automatic`, where the button already is (see `lastAutomatic`).
     static func starting(for bundleID: String, automatic: Double?) -> Double {
@@ -90,9 +112,11 @@ nonisolated enum BadgeOffsets {
         return min(max(value.rounded(), range.lowerBound), range.upperBound)
     }
 
-    /// Back to automatic placement for the app, shown on every window.
+    /// Forget everything about the app: automatic placement, a button on
+    /// every window, and not ignored.
     static func remove(_ bundleID: String, in defaults: UserDefaults = .standard) {
         setOnlyWhenPinned(false, for: bundleID, in: defaults)
+        setIgnored(false, for: bundleID, in: defaults)
         var own = own(in: defaults)
         if own.removeValue(forKey: bundleID) != nil { defaults.set(own, forKey: key) }
         if builtIn[bundleID] != nil {

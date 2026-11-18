@@ -36,6 +36,8 @@ final class PinBadgeController {
     private let slots = TitleBarSlotFinder()
     /// Apps whose windows get a badge only once pinned: see `BadgeOffsets`.
     private var onlyWhenPinned: Set<String> = []
+    /// Apps Perch ignores: no buttons on their windows at all.
+    private var ignoredApps: Set<String> = []
 
     // Nothing here runs on a timer while nothing is happening. A badge only
     // has to move when a window does, and every way a window can change says
@@ -123,6 +125,7 @@ final class PinBadgeController {
         guard decision.runsNow else { return }
         slots.offsets = BadgeOffsets.all()
         onlyWhenPinned = BadgeOffsets.onlyWhenPinned()
+        ignoredApps = BadgeOffsets.ignored()
         observeFrontmostApp()
         readFocusedWindow()
         update()
@@ -258,7 +261,8 @@ final class PinBadgeController {
     }
 
     private func updatePinnedBadges(restack: Bool) {
-        let pinned = Self.showsPinned ? tracker.pinnedWindows : []
+        let pinned = (Self.showsPinned ? tracker.pinnedWindows : [])
+            .filter { ignoredApps.isEmpty || !ignoredApps.contains(slots.bundleID(of: $0.ownerPID)) }
         let ids = Set(pinned.map(\.windowID))
         for (id, badge) in pinnedBadges where !ids.contains(id) {
             badge.orderOut(nil)
@@ -298,6 +302,7 @@ final class PinBadgeController {
     private func updateFocusedBadge() {
         guard let fw = focusedWindow, !tracker.isPinned(windowID: fw.windowID),
               onlyWhenPinned.isEmpty || !onlyWhenPinned.contains(slots.bundleID(of: fw.ownerPID)),
+              ignoredApps.isEmpty || !ignoredApps.contains(slots.bundleID(of: fw.ownerPID)),
               let frame = Self.onScreenFrame(of: fw.windowID),
               frame.width >= 200, frame.height >= 120,
               // A window filling a whole display is full screen: a film, a

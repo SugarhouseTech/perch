@@ -83,16 +83,19 @@ struct PerchSettingsContent: View {
             Toggle(isOn: $badgeFocused) {
                 Text("Show a perch button on the window you're using")
                 Text("A small button at the right of the title bar. Click it to perch the window.")
+                    .font(.settingsHelp)
             }
             Toggle(isOn: $badgePinned) {
                 Text("Show a perch button on perched windows")
                 Text("Click it to unperch.")
+                    .font(.settingsHelp)
             }
             Picker(selection: $unpinBehavior) {
                 ForEach(UnpinBehavior.allCases, id: \.self) { Text($0.title).tag($0) }
             } label: {
                 Text("When you unperch a window")
                 Text("Bring it forward puts the window in front, ready to use. Hide it just lets go of the copy, and the window stays where it was, which may be behind other windows.")
+                    .font(.settingsHelp)
             }
         }
 
@@ -100,11 +103,13 @@ struct PerchSettingsContent: View {
             Toggle(isOn: $forwardEvents) {
                 Text(Self.interactionTitle)
                 Text(Self.interactionCaption)
+                    .font(.settingsHelp)
             }
 
             Toggle(isOn: $pinToAllSpaces) {
                 Text("Show perched windows on every desktop")
                 Text("When this is off, a perched window appears only on the desktop where you perched it. Desktops are the spaces you switch between in Mission Control.")
+                    .font(.settingsHelp)
             }
             .onChange(of: pinToAllSpaces) { _, _ in
                 tracker.updateAllSpaces()
@@ -122,6 +127,7 @@ struct PerchSettingsContent: View {
             } label: {
                 Text("Update speed")
                 Text("How many times a second (fps) a perched window can redraw, which matters for video and animation. It only redraws when its window changes, so a high setting costs nothing while the window is still.")
+                    .font(.settingsHelp)
             }
             .onChange(of: captureRate) { _, _ in
                 tracker.updateCaptureRate()
@@ -147,6 +153,7 @@ struct PerchSettingsContent: View {
             } label: {
                 Text("Accessibility")
                 Text("Lets the shortcut and perch buttons work, perched windows scroll, and windows come to the front.")
+                    .font(.settingsHelp)
             }
             // The Settings window is cached, so these watchers would otherwise poll for the
             // life of the app once Settings had been opened.
@@ -168,6 +175,7 @@ struct PerchSettingsContent: View {
             } label: {
                 Text("Screen Recording")
                 Text("Lets a perched window show its live contents. Perch looks only at windows you perch, and saves and sends nothing.")
+                    .font(.settingsHelp)
             }
         }
 

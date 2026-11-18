@@ -90,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         badges = PinBadgeController(tracker: tracker) { [weak self] fw in
             guard let self else { return }
             let wasPinned = self.tracker.isPinned(windowID: fw.windowID)
-            self.tracker.toggle(window: fw)
+            guard self.toggleUnlessIgnored(fw) else { return }
             self.showPinFeedback(wasPinned: wasPinned, window: fw)
         }
 
@@ -253,7 +253,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let label = isPinned
                 ? "Unperch \"\(truncate(displayName, max: 30))\""
                 : "Perch \"\(truncate(displayName, max: 30))\""
-            let item = NSMenuItem(title: label, action: #selector(toggleFrontmost), keyEquivalent: "")
+            // An ignored app's window is named, so it is clear why it can't be perched.
+            let ignored = !isPinned && isIgnored(fw)
+            let item = NSMenuItem(title: ignored ? "Perch ignores \(fw.ownerName)" : label,
+                                  action: ignored ? nil : #selector(toggleFrontmost), keyEquivalent: "")
+            item.isEnabled = !ignored
             item.representedObject = fw
             // Shown so the shortcut can be learnt from here.
             if let key = shortcutKeyEquivalent {
@@ -297,7 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleFrontmost(_ sender: NSMenuItem) {
         guard let fw = sender.representedObject as? ForeignWindow else { return }
         let wasPinned = tracker.isPinned(windowID: fw.windowID)
-        tracker.toggle(window: fw)
+        guard toggleUnlessIgnored(fw) else { return }
         showPinFeedback(wasPinned: wasPinned, window: fw)
     }
 
@@ -328,6 +332,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         JorvikSettingsView.showWindow(appName: "Perch", showsLaunchAtLogin: false) {
             PerchSettingsContent(tracker: trackerRef, delegate: delegate)
         }
+        showInDockWhileOpen(JorvikSettingsWindow.current)
+    }
+
+    private var settingsCloseObserver: (any NSObjectProtocol)?
+
+    /// While Settings is open Perch shows in the Dock and the app switcher,
+    /// so the window can be found again after clicking away; it goes back to
+    /// the menu bar alone when the window closes.
+    private func showInDockWhileOpen(_ window: NSWindow?) {
+        guard let window else { return }
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate()
+        guard settingsCloseObserver == nil else { return }
+        settingsCloseObserver = NotificationCenter.default.observeOnMain(NSWindow.willCloseNotification, object: window) { [weak self] _ in
+            NSApp.setActivationPolicy(.accessory)
+            if let token = self?.settingsCloseObserver { NotificationCenter.default.removeObserver(token) }
+            self?.settingsCloseObserver = nil
+        }
+    }
+
+    /// Whether Perch has been set to leave this window's app alone. Such a
+    /// window cannot be perched; one perched before can still be unperched.
+    private func isIgnored(_ fw: ForeignWindow) -> Bool {
+        let ignored = BadgeOffsets.ignored()
+        guard !ignored.isEmpty, let id = NSRunningApplication(processIdentifier: fw.ownerPID)?.bundleIdentifier else { return false }
+        return ignored.contains(id)
+    }
+
+    /// Perch or unperch, unless the app is ignored and the window not yet perched.
+    private func toggleUnlessIgnored(_ fw: ForeignWindow) -> Bool {
+        if !tracker.isPinned(windowID: fw.windowID), isIgnored(fw) {
+            PinFeedbackHUD.show("Perch ignores \(fw.ownerName)", windowID: CGWindowID(fw.windowID))
+            wplog("toggle: \(fw.ownerName) is ignored")
+            return false
+        }
+        tracker.toggle(window: fw)
+        return true
     }
 
     // MARK: - Global hotkey (CGEvent tap)
@@ -433,7 +474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         let wasPinned = tracker.isPinned(windowID: fw.windowID)
-        tracker.toggle(window: fw)
+        guard toggleUnlessIgnored(fw) else { return }
         showPinFeedback(wasPinned: wasPinned, window: fw)
         let action = wasPinned ? "Unperched" : "Perched"
         let title = fw.windowTitle.isEmpty ? fw.ownerName : fw.windowTitle

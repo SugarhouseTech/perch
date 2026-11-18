@@ -59,15 +59,21 @@ while it is hidden.
 ### The perch button
 
 The button sits at the right of the title bar, left of any buttons the app
-has put there. It shows on the window in use, so you can perch it, and on
-perched windows, filled in, to show they are perched. Either can be turned off
-in Settings.
+has put there. On the window in use it shows a robin in flight, so you can
+perch the window; on a perched window, a perched robin in an orange ring.
+Hover over it to see what a click does. Either can be turned off in Settings.
 
-Some apps describe their title bars to macOS in a way Perch cannot read. Where
-the button lands in the wrong place, add the app under **Perch Button
-Placement** in Settings and drag it into place. Discord and Obsidian come set
-up already. **Only when perched** keeps the button off that app's windows
-until they are perched, so a perched window can still always be told apart.
+Under **Apps** in Settings, add an app to treat it differently:
+
+- **Ignore this app**: no perch buttons on its windows, and its windows can't
+  be perched.
+- **Button position**: some apps describe their title bars to macOS in a way
+  Perch cannot read, and the button lands in the wrong place. Drag the slider
+  or type a distance from the window's right edge. Discord and Obsidian come
+  set up already.
+- **Show the button only on perched windows**: keeps the button off that
+  app's windows until they are perched, so a perched window can still always
+  be told apart.
 
 <img src="docs/images/settings.png" alt="Perch Settings: the shortcut, the perch buttons, what unperching does, and how perched windows behave" width="440">
 
@@ -156,7 +162,7 @@ running.
   and later, use System Settings → Menu Bar instead. With the icon hidden,
   open Perch again to reach Settings.
 - **Permissions**: whether each is granted, with a button to grant it.
-- **Perch Button Placement**: per-app button positions, as above.
+- **Apps**: apps to ignore, and per-app button positions, as above.
 
 Settings are saved as you change them. Settings from WindowPin, the app's
 earlier name, are carried over the first time Perch runs.
