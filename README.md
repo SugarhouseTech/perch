@@ -134,8 +134,12 @@ Open **Settings…** from the menu bar icon, or open WindowPin again while it
 is running.
 
 - **Pinning**: the shortcut (**Clear** removes it, and pinning still works
-  from the menu and the button), and whether to show the pin button on pinned
-  windows and on the window in use.
+  from the menu and the button), what happens to a window when you unpin it,
+  and whether to show the pin button on pinned windows and on the window in
+  use. An unpinned window can be brought forward with the keyboard (the
+  default), left in view where it was while you keep working in the app you
+  are in, or simply hidden. Left in view, its copy stays until you click it,
+  switch to its app or cover it.
 - **Pin Button Position**: per-app button positions, as above.
 - **Overlays**: the maximum frame rate (30 fps by default; a pin is only
   redrawn when its window changes), **Interact through overlays**, and
