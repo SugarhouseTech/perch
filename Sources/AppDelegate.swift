@@ -38,12 +38,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // editing shortcuts work in the settings window's text fields.
         JorvikApplicationMenu.install()
 
-        // Settings from before the rename to Perch, once.
-        let carried = SettingsMigration.run(
-            old: UserDefaults.standard.persistentDomain(forName: SettingsMigration.oldDomain),
-            into: .standard)
-        if !carried.isEmpty { wplog("Carried over \(carried.count) settings from WindowPin") }
-
         NSApp.setActivationPolicy(.accessory)
 
         // Every Accessibility call Perch makes waits on another app, and the
