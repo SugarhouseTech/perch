@@ -69,7 +69,7 @@ Placement** in Settings and drag it into place. Discord and Obsidian come set
 up already. **Only when perched** keeps the button off that app's windows
 until they are perched, so a perched window can still always be told apart.
 
-<img src="docs/images/settings.png" alt="Perch Settings, with Discord's button position set" width="440">
+<img src="docs/images/settings.png" alt="Perch Settings: the shortcut, the perch buttons, what unperching does, and how perched windows behave" width="440">
 
 ## Cropping a perched window
 
