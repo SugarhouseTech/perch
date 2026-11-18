@@ -1,11 +1,12 @@
 import AppKit
 
-/// Small pin buttons in the top-right corner of windows' title bars.
+/// Small perch buttons in the top-right corner of windows' title bars.
 ///
-/// - On every pinned window, a solid pin: click it to unpin. It follows the
-///   floating pin while that is showing, and the real window while you are in
-///   its app.
-/// - On the window you are working in, a faint pin: click it to pin that window.
+/// - On every perched window, a navy button with a perched robin: click it to
+///   unperch. It follows the floating copy while that is showing, and the
+///   real window while you are in its app.
+/// - On the window you are working in, a faint button with a robin in flight:
+///   click it to perch that window.
 ///
 /// Each badge is Perch's own small window, ordered just above the window it
 /// belongs to, so anything covering that window covers the badge too. The one
@@ -459,21 +460,23 @@ private final class BadgeView: NSView {
     override func mouseEntered(with event: NSEvent) { hovering = true }
     override func mouseExited(with event: NSEvent) { hovering = false }
 
+    /// A perched window's button: the dusk navy of the app icon's sky. Not
+    /// orange, which would swallow the robin's breast.
+    private static let perchedFill = NSColor(srgbRed: 0.13, green: 0.17, blue: 0.30, alpha: 1)
+
     override func draw(_ dirtyRect: NSRect) {
         let circle = NSBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1))
         let fill: NSColor = pinned
-            ? .systemOrange
-            : NSColor.gray.withAlphaComponent(hovering ? 0.85 : 0.35)
+            ? Self.perchedFill
+            : NSColor.gray.withAlphaComponent(hovering ? 0.85 : 0.45)
         fill.setFill()
         circle.fill()
 
-        let name = pinned || hovering ? "pin.fill" : "pin"
-        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-            .applying(.init(paletteColors: [.white]))
-        guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(config) else { return }
-        let s = symbol.size
-        symbol.draw(in: NSRect(x: (bounds.width - s.width) / 2, y: (bounds.height - s.height) / 2,
-                               width: s.width, height: s.height))
+        // The same robin as the menu bar. Hovering shows what a click will
+        // do: a flying robin lands to perch the window, a perched one takes
+        // off to unperch it.
+        let showsPerched = pinned != hovering
+        MenuBarGlyph.draw(in: bounds.insetBy(dx: 3.5, dy: 3.5), color: .white,
+                          pinned: showsPerched, warning: false)
     }
 }
