@@ -72,11 +72,7 @@ struct PerchSettingsContent: View {
                 },
                 onRecordingChanged: { delegate.setHotkeySuspended($0) }
             )
-            Toggle(isOn: $badgeFocused) {
-                Text("Show a perch button on the window you're using")
-                Text("A small button at the right of the title bar. Click it to perch the window.")
-                    .font(.settingsHelp)
-            }
+            Toggle("Show a perch button in the title bar of the window you're using", isOn: $badgeFocused)
             Toggle("Show an unperch button on perched windows", isOn: $badgePinned)
             Picker(selection: $unpinBehavior) {
                 ForEach(UnpinBehavior.allCases, id: \.self) { Text($0.title).tag($0) }
