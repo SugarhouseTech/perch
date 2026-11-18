@@ -472,15 +472,22 @@ private final class BadgeView: NSView {
         action()
     }
     override func mouseEntered(with event: NSEvent) {
+        // Already hovering: a spurious leave was ignored, so the label is up
+        // or on its way.
+        guard !hovering else { return }
         hovering = true
         let show = DispatchWorkItem { [weak self] in
             guard let self, self.hovering, let window = self.window, window.isVisible else { return }
-            HoverLabel.shared.show(self.label, below: window.frame)
+            HoverLabel.shared.show(self.label, below: window.frame, for: self)
         }
         pendingLabel = show
         DispatchQueue.main.asyncAfter(deadline: .now() + HoverLabel.delay, execute: show)
     }
     override func mouseExited(with event: NSEvent) {
+        // A perched window's button is moved and restacked with its window
+        // every half second, and macOS reports each as the pointer leaving:
+        // the label vanished after a moment. Leave only if it really has.
+        if let frame = window?.frame, frame.contains(NSEvent.mouseLocation) { return }
         hovering = false
         hideLabel()
     }
@@ -491,7 +498,7 @@ private final class BadgeView: NSView {
     func hideLabel() {
         pendingLabel?.cancel()
         pendingLabel = nil
-        HoverLabel.shared.hide()
+        HoverLabel.shared.hide(for: self)
     }
 
     /// A perched window's button must be obvious at a glance, as the old
@@ -530,6 +537,11 @@ private final class HoverLabel {
 
     private let panel: NSPanel
     private let text = NSTextField(labelWithString: "")
+    /// The button the label is showing for. Only that button may take it
+    /// down: the hidden buttons are told to hide again on every refresh,
+    /// and when they took the shared label with them, a perched window's
+    /// label vanished half a second after it appeared.
+    private weak var owner: AnyObject?
 
     private init() {
         panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
@@ -562,7 +574,8 @@ private final class HoverLabel {
 
     /// Under the button, right edges aligned, so it stays over the window
     /// the button belongs to rather than running off its right edge.
-    func show(_ string: String, below button: NSRect) {
+    func show(_ string: String, below button: NSRect, for owner: AnyObject) {
+        self.owner = owner
         text.stringValue = string
         let size = panel.contentView!.fittingSize
         var origin = NSPoint(x: button.maxX - size.width, y: button.minY - 6 - size.height)
@@ -573,5 +586,9 @@ private final class HoverLabel {
         panel.orderFrontRegardless()
     }
 
-    func hide() { panel.orderOut(nil) }
+    func hide(for owner: AnyObject) {
+        guard self.owner === owner else { return }
+        self.owner = nil
+        panel.orderOut(nil)
+    }
 }
