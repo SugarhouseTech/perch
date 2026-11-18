@@ -48,21 +48,18 @@ writes `Resources/AppIcon.icns`. To change the icon, replace the art and run:
 swift generate_icon.swift
 ```
 
-The art was made by OpenAI GPT-5.4 Image 2 (through OpenRouter) from
-`reference/app-icon-concept.png`, with this prompt:
+The design is Google Gemini 3 Pro Image's own variation from round four
+(below), `reference/app-icon-concept.jpg`: a big robin gripping the title bar
+of a window that comes in from the lower right, on orange fading to teal. The
+final art was redrawn from it, full bleed, by OpenAI GPT-5.4 Image 2, with:
 
-> The attached image is an app icon I like. Recreate it as final production
-> artwork: a single square image, the artwork filling the whole square edge
-> to edge, with NO rounded corners, NO border, NO drop shadow and nothing
-> outside the art (I will apply the macOS rounded-square mask myself). Keep
-> the same design: a dusk sky gradient from deep navy at the top to warm peach
-> at the bottom, a few tiny stars, and a slim, sleek robin with an orange
-> breast and slate-grey back, perched on the top edge of a frosted-glass app
-> window and gripping it with its feet. The window has three small
-> soft-coloured title-bar dots and two faint content lines, with a second
-> frosted pane slightly behind it. Keep the bird and window centred with
-> comfortable margins, crisp edges, Apple-quality, and readable at small
-> sizes. No text.
+> The attached image is an app icon design I've chosen. Recreate it as final
+> production artwork: one square image, the artwork filling the whole square
+> edge to edge, with NO rounded corners, NO border, NO drop shadow and nothing
+> outside the art (I will apply the macOS rounded-square mask myself, which
+> trims about 10% from each edge, so keep the bird's beak, head and tail clear
+> of the outer tenth). Keep the same design exactly: [the design, described].
+> Crisp edges, bold shapes, strong contrast, readable at 32 pixels. No text.
 
 ## Making more
 
@@ -94,6 +91,12 @@ chat completions API (`modalities: ["image", "text"]`):
 3. The favourites attached as references, with the brief: slim and swift,
    never chubby, one touch of colour (the robin's breast); for the app icon,
    the same bird perched on an app window, gripping its top edge.
+4. The first app icon (a robin on a frosted window at dusk) was too soft to
+   see in the Dock. The brief: the bird large, in the top three fifths, with
+   a strong outline, gripping only a macOS title bar with its traffic lights,
+   not a whole window; bold shapes that read at 32 pixels.
+5. The chosen design redrawn as full-bleed final art, several takes, compared
+   through the real rounded-square mask at Dock size and at 32 pixels.
 
 The chosen glyph was then traced by hand as the paths above, so it is crisp
 at every size and costs nothing to draw.
