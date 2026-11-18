@@ -134,7 +134,7 @@ struct PerchSettingsContent: View {
                 }
             } label: {
                 Text("Screen Recording")
-                Text("Perch needs to see a perched window's contents to keep on top.")
+                Text("Perch needs to see window contents to keep it on top.")
                     .font(.settingsHelp)
             }
         }
