@@ -235,8 +235,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // First, while it stands in the way: the menu bar icon's red dot
         // points here.
         if SetupWindow.isMissingPermission {
-            let setupItem = NSMenuItem(title: "\u{26A0}\u{FE0E} Finish Setting Up\u{2026}", action: #selector(showSetup), keyEquivalent: "")
+            let setupItem = NSMenuItem(title: "Finish Setting Up\u{2026}", action: #selector(showSetup), keyEquivalent: "")
             setupItem.target = self
+            setupItem.image = Self.symbol("exclamationmark.triangle")
             menu.addItem(setupItem)
             menu.addItem(NSMenuItem.separator())
         }
@@ -251,14 +252,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let isPinned = tracker.isPinned(windowID: fw.windowID)
             let displayName = fw.windowTitle.isEmpty ? fw.ownerName : fw.windowTitle
             let label = isPinned
-                ? "Unperch \"\(truncate(displayName, max: 30))\""
-                : "Perch \"\(truncate(displayName, max: 30))\""
+                ? "Unperch \u{201C}\(truncate(displayName, max: 30))\u{201D}"
+                : "Perch \u{201C}\(truncate(displayName, max: 30))\u{201D}"
             // An ignored app's window is named, so it is clear why it can't be perched.
             let ignored = !isPinned && isIgnored(fw)
             let item = NSMenuItem(title: ignored ? "Perch ignores \(fw.ownerName)" : label,
                                   action: ignored ? nil : #selector(toggleFrontmost), keyEquivalent: "")
             item.isEnabled = !ignored
             item.representedObject = fw
+            item.image = Self.robinMenuImage(perched: isPinned)
             // Shown so the shortcut can be learnt from here.
             if let key = shortcutKeyEquivalent {
                 item.keyEquivalent = key
@@ -268,6 +270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             let item = NSMenuItem(title: "No window to perch", action: nil, keyEquivalent: "")
             item.isEnabled = false
+            item.image = Self.robinMenuImage(perched: false)
             menu.addItem(item)
         }
 
@@ -278,22 +281,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             for pw in PinPolicy.menuOrder(tracker.pinnedWindows, frontPID: front) {
                 let item = NSMenuItem(title: pw.displayLabel, action: #selector(unpinMenuItem(_:)), keyEquivalent: "")
                 item.representedObject = pw.windowID
-                item.state = .on
+                item.image = Self.appMenuImage(pid: pw.ownerPID)
                 item.toolTip = "Unperch"
                 menu.addItem(item)
             }
-            menu.addItem(NSMenuItem(title: "Unperch All", action: #selector(unpinAllAction), keyEquivalent: ""))
+            let unperchAll = NSMenuItem(title: "Unperch All", action: #selector(unpinAllAction), keyEquivalent: "")
+            unperchAll.image = Self.symbol("pip.remove")
+            menu.addItem(unperchAll)
         }
 
         menu.addItem(NSMenuItem.separator())
 
         let settingsItem = NSMenuItem(title: "Settings\u{2026}", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
+        settingsItem.image = Self.symbol("gearshape")
         menu.addItem(settingsItem)
         let aboutItem = NSMenuItem(title: "About Perch", action: #selector(openAbout), keyEquivalent: "")
         aboutItem.target = self
+        aboutItem.image = Self.symbol("info.circle")
         menu.addItem(aboutItem)
-        menu.addItem(NSMenuItem(title: "Quit Perch", action: #selector(quit), keyEquivalent: "q"))
+        let quitItem = NSMenuItem(title: "Quit Perch", action: #selector(quit), keyEquivalent: "q")
+        quitItem.image = Self.symbol("power")
+        menu.addItem(quitItem)
+    }
+
+    /// Every item gets an image: macOS 26 and later add one to Settings by
+    /// themselves, and a menu with only some leaves the rest out of line.
+    private static func symbol(_ name: String) -> NSImage? {
+        NSImage(systemSymbolName: name, accessibilityDescription: nil)
+    }
+
+    /// The menu bar robin at menu item size, as a template so the menu tints
+    /// it like its text, highlight included: in flight to perch, settled to
+    /// unperch.
+    private static func robinMenuImage(perched: Bool) -> NSImage {
+        let image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+            MenuBarGlyph.draw(in: rect, color: .black, pinned: perched, warning: false)
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+    /// The perched window's app icon, so windows can be told apart at a glance.
+    private static func appMenuImage(pid: pid_t) -> NSImage? {
+        guard let icon = NSRunningApplication(processIdentifier: pid)?.icon?.copy() as? NSImage else { return nil }
+        icon.size = NSSize(width: 16, height: 16)
+        return icon
     }
 
     // MARK: - Actions
