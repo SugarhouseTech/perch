@@ -33,9 +33,6 @@ final class PinnedWindowTracker {
 
     private(set) var pinnedWindows: Set<PinnedWindow> = []
     private var overlays: [UInt32: WindowOverlay] = [:]
-    /// Copies of unpinned windows left in view (`UnpinBehavior.leaveInView`),
-    /// kept until each ends itself.
-    private var standIns: [UInt32: WindowOverlay] = [:]
     private var pollTimer: Timer?
     /// Runs only while a pin is cropped. See `updateCroppedLayering`.
     private var layeringTimer: Timer?
@@ -73,7 +70,6 @@ final class PinnedWindowTracker {
         )
         guard !pinnedWindows.contains(pw) else { return }
         guard hasScreenRecording() else { return }
-        standIns[window.windowID]?.endStandIn()
 
         pinnedWindows.insert(pw)
 
@@ -117,34 +113,22 @@ final class PinnedWindowTracker {
     }
 
     /// - Parameter byUser: the user unpinned it, so the window is left as
-    ///   Settings says (`UnpinBehavior`). An unpin the app makes by itself
-    ///   (capture refused) only takes the pin away, and never moves focus.
+    ///   Settings says (`UnpinBehavior`): by default brought to the front with
+    ///   the keyboard, since someone done with a window floating usually
+    ///   wants to use it next. An unpin the app makes by itself (capture
+    ///   refused) only takes the pin away, and never moves focus.
     func unpin(windowID: UInt32, byUser: Bool) {
         guard let pw = pinnedWindows.first(where: { $0.windowID == windowID }) else { return }
-        pinnedWindows.remove(pw)
-        if let overlay = overlays.removeValue(forKey: windowID) {
-            let action = byUser
-                ? UnpinBehavior.stored(in: .standard).action(pinShowing: overlay.isShowing)
-                : .hide
-            switch action {
-            case .hide:
-                overlay.hideOverlay()
-            case .focusThenHide:
-                overlay.activateRealWindow()
-                overlay.hideOverlay()
-            case .standIn:
-                standIns[windowID] = overlay
-                overlay.standIn { [weak self, weak overlay] in
-                    overlay?.hideOverlay()
-                    self?.standIns[windowID] = nil
-                }
-            }
+        if byUser, UnpinBehavior.stored(in: .standard) == .focus {
+            overlays[windowID]?.activateRealWindow()
         }
+        overlays[windowID]?.hideOverlay()
+        overlays[windowID] = nil
+        pinnedWindows.remove(pw)
         pinsChanged()
     }
 
     func unpinAll() {
-        for overlay in standIns.values { overlay.endStandIn() }
         for (_, overlay) in overlays {
             overlay.hideOverlay()
         }
@@ -177,19 +161,12 @@ final class PinnedWindowTracker {
 
     private func observeAppActivation() {
         NSWorkspace.shared.notificationCenter.observeOnMain(NSWorkspace.didActivateApplicationNotification) { [weak self] notification in
-            guard let self = self else { return }
+            guard let self = self, !self.pinnedWindows.isEmpty else { return }
 
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             let activatedPID = app.processIdentifier
             let myPID = ProcessInfo.processInfo.processIdentifier
             guard activatedPID != myPID else { return }
-
-            // Switched to an unpinned window's app: its real windows are in
-            // front now, so the copy standing in for one has done its job.
-            for overlay in self.standIns.values where overlay.targetPID == activatedPID {
-                overlay.endStandIn()
-            }
-            guard !self.pinnedWindows.isEmpty else { return }
 
             // For each pinned window:
             // - If the activated app owns this window → drop overlay behind (user is using real window)

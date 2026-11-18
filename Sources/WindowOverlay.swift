@@ -118,14 +118,6 @@ class WindowOverlay: NSPanel {
     /// Whether the overlay is currently in "pinned visible" mode.
     var isPinVisible: Bool { life.pinVisible }
 
-    /// Up, and not hidden on another Space or behind a full-screen app.
-    var isShowing: Bool { isPinVisible && isVisible && occlusionState.contains(.visible) }
-
-    /// Set while the copy of an unpinned window stands in for it; called once
-    /// when that ends. See `standIn(onEnd:)`.
-    private var onStandInEnd: (() -> Void)?
-    var isStandingIn: Bool { onStandInEnd != nil }
-
     /// Maximum stream frame rate (configurable via UserDefaults "captureRate", default 30).
     /// The stream only delivers frames when the window content changes, so a
     /// high cap costs nothing for static content.
@@ -232,9 +224,6 @@ class WindowOverlay: NSPanel {
     /// thirty frames a second for nobody.
     private func occlusionChanged() {
         let hidden = !occlusionState.contains(.visible)
-        // Covered by other windows, or out of sight: a stand-in has done its
-        // job, and keeping it would leave a stale copy to find later.
-        if hidden, isStandingIn { endStandIn(); return }
         if hidden != life.outOfSight, isPinVisible {
             wplog("overlay: \(hidden ? "out of sight, pausing" : "back in sight, resuming") wid=\(targetWindowID)")
         }
@@ -245,9 +234,6 @@ class WindowOverlay: NSPanel {
 
     /// Tell the lifecycle what happened, and do what it says.
     private func send(_ event: StreamLifecycle.Event) {
-        // A stand-in's stream ending usually means its window closed. It is
-        // not restarted: the stand-in goes instead.
-        if event == .streamFailed, isStandingIn { endStandIn(); return }
         for effect in life.handle(event) { perform(effect) }
     }
 
@@ -356,19 +342,6 @@ class WindowOverlay: NSPanel {
     }
 
     override func sendEvent(_ event: NSEvent) {
-        if isStandingIn {
-            switch event.type {
-            case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-                // The copy is not the window: a click takes the user to it.
-                activateRealWindow()
-                endStandIn()
-                return
-            case .scrollWheel:
-                break   // scrolls the real window, as on a pin
-            default:
-                return  // no crop or move gestures on a stand-in
-            }
-        }
         if isPinVisible, handleCropGesture(event) { return }
 
         if event.type == .scrollWheel, isPinVisible, usesAccessibilityScrolling {
@@ -789,31 +762,6 @@ class WindowOverlay: NSPanel {
         effects.forEach(perform)
     }
 
-    /// Keep showing an unpinned window's copy, as an ordinary window where
-    /// the pin was, without taking the keyboard from the app in use. macOS
-    /// will not bring another app's window above the active app's without
-    /// activating it, so the copy stays in its place instead. The stream and
-    /// frame sync keep running, so it stays live and follows the window.
-    ///
-    /// It ends, calling `onEnd` once, when it is clicked (which goes to the
-    /// real window), when it is covered or goes out of sight, when its window
-    /// closes, or when the tracker ends it (its app is activated, the window
-    /// is pinned again, Unpin All). Nothing about it runs on a timer.
-    func standIn(onEnd: @escaping () -> Void) {
-        onStandInEnd = onEnd
-        wplog("overlay: standing in for unpinned wid=\(targetWindowID)")
-        level = .normal
-        orderFrontRegardless()
-    }
-
-    /// End a stand-in, if this is one.
-    func endStandIn() {
-        guard let end = onStandInEnd else { return }
-        onStandInEnd = nil
-        wplog("overlay: stand-in ended wid=\(targetWindowID)")
-        end()
-    }
-
     /// Fully remove overlay from screen (used when unpinning / cleaning up).
     func hideOverlay() {
         wplog("overlay: hideOverlay wid=\(targetWindowID)")
@@ -1096,12 +1044,7 @@ class WindowOverlay: NSPanel {
     }
 
     private func syncFrameWithTarget() {
-        guard let target = Self.getWindowFrame(windowID: targetWindowID) else {
-            // The window closed. A pin waits for the tracker to notice; a
-            // stand-in has no tracker watching it, so it goes now.
-            if isStandingIn { endStandIn() }
-            return
-        }
+        guard let target = Self.getWindowFrame(windowID: targetWindowID) else { return }
         let wanted = panelFrame(forTarget: target)
         if frame != wanted {
             applyingFrame = true

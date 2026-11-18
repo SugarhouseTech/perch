@@ -3,22 +3,10 @@ import Testing
 @testable import WindowPin
 
 @Suite struct UnpinBehaviorTests {
-    @Test(arguments: [
-        (UnpinBehavior.focus, true, UnpinBehavior.Action.focusThenHide),
-        (.focus, false, .focusThenHide),
-        (.leaveInView, true, .standIn),
-        (.leaveInView, false, .hide),
-        (.hide, true, .hide),
-        (.hide, false, .hide),
-    ])
-    func action(behavior: UnpinBehavior, pinShowing: Bool, expected: UnpinBehavior.Action) {
-        #expect(behavior.action(pinShowing: pinShowing) == expected)
-    }
-
-    @Test func defaultsToBringingTheWindowForward() throws {
+    @Test(arguments: [nil, "not a behaviour", "leaveInView"])
+    func anythingElseReadsAsBringingTheWindowForward(stored: String?) throws {
         try withSuite { defaults in
-            #expect(UnpinBehavior.stored(in: defaults) == .focus)
-            defaults.set("not a behaviour", forKey: UnpinBehavior.key)
+            defaults.set(stored, forKey: UnpinBehavior.key)
             #expect(UnpinBehavior.stored(in: defaults) == .focus)
         }
     }

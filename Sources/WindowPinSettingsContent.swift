@@ -74,7 +74,7 @@ struct WindowPinSettingsContent: View {
                 ForEach(UnpinBehavior.allCases, id: \.self) { Text($0.title).tag($0) }
             } label: {
                 Text("When you unpin a window")
-                Text("Leave it in view keeps the window's copy where it is, and the keyboard where it is, until you click the copy, switch to its app or cover it.")
+                Text("Bring it forward puts the window in front, ready to type in. Hide it leaves the window wherever it was, often behind the app you are in.")
             }
             Toggle("Show a pin button on pinned windows", isOn: $badgePinned)
             Toggle(isOn: $badgeFocused) {
