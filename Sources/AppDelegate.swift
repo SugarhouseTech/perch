@@ -268,7 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func unpinMenuItem(_ sender: NSMenuItem) {
         guard let windowID = sender.representedObject as? UInt32 else { return }
-        tracker.unpin(windowID: windowID, bringForward: true)
+        tracker.unpin(windowID: windowID, byUser: true)
         PinFeedbackHUD.show("Unpinned", windowID: CGWindowID(windowID))
     }
 

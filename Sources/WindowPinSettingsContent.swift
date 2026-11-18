@@ -14,6 +14,7 @@ struct WindowPinSettingsContent: View {
     // the overlay was treating it as off.
     @AppStorage("forwardEvents") private var forwardEvents: Bool = WindowOverlay.forwardEvents
     @AppStorage("pinToAllSpaces") private var pinToAllSpaces: Bool = false
+    @AppStorage(UnpinBehavior.key) private var unpinBehavior: UnpinBehavior = .default
     @AppStorage(PinBadgeController.pinnedKey) private var badgePinned: Bool = true
     @AppStorage(PinBadgeController.focusedKey) private var badgeFocused: Bool = true
 
@@ -69,6 +70,12 @@ struct WindowPinSettingsContent: View {
                 },
                 onRecordingChanged: { delegate.setHotkeySuspended($0) }
             )
+            Picker(selection: $unpinBehavior) {
+                ForEach(UnpinBehavior.allCases, id: \.self) { Text($0.title).tag($0) }
+            } label: {
+                Text("When you unpin a window")
+                Text("Leave it in view keeps the window's copy where it is, and the keyboard where it is, until you click the copy, switch to its app or cover it.")
+            }
             Toggle("Show a pin button on pinned windows", isOn: $badgePinned)
             Toggle(isOn: $badgeFocused) {
                 Text("Show a pin button on the window in use")
