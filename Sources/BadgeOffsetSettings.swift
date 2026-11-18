@@ -55,10 +55,13 @@ struct BadgeOffsetSettings: View {
             }
         } label: {
             VStack(alignment: .leading, spacing: 4) {
-                Label {
-                    Text(app.name)
-                } icon: {
+                // Laid out like the checkbox row below, a 16 point glyph and
+                // then the words, so the two lines start at the same place.
+                // A Label leaves a wider gap after its icon than a checkbox.
+                HStack(spacing: 6) {
                     Image(nsImage: app.icon)
+                        .frame(width: 16, height: 16)
+                    Text(app.name)
                 }
                 // The distance still counts with this on: a pinned window
                 // shows its button there.
@@ -74,6 +77,7 @@ struct BadgeOffsetSettings: View {
                     ))
                     .toggleStyle(.checkbox)
                     .labelsHidden()
+                    .frame(width: 16)
                     Text("Only when pinned")
                 }
                 .help("Show the button only on this app's pinned windows, to say they are pinned")
