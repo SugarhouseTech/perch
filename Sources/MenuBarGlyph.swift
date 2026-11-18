@@ -30,9 +30,13 @@ nonisolated enum MenuBarGlyph {
         ctx.translateBy(x: rect.minX, y: rect.maxY)
         ctx.scaleBy(x: scale, y: -scale)
 
+        // Each part (body, wing, tail) is filled on its own, so parts that
+        // overlap add up whichever way they were drawn.
         ctx.setFillColor(color.cgColor)
-        ctx.addPath(path(shape.outline))
-        ctx.fillPath()
+        for part in shape.outline.split(separator: "M") {
+            ctx.addPath(path("M" + part))
+            ctx.fillPath()
+        }
         ctx.setFillColor(breast.cgColor)
         ctx.addPath(path(shape.breast))
         ctx.fillPath()
@@ -84,21 +88,23 @@ nonisolated enum MenuBarGlyph {
         let eyeRadius: CGFloat
         let feet: String?
 
-        /// Side on, climbing, wings raised; traced from the chosen design.
+        /// Side on, climbing, one swept wing raised, feather tips at its
+        /// trailing edge, and a forked tail.
         static let flying = Shape(
-            outline: "M4.12 1.2 L15.5 11.42 C16.28 10.54 17.55 9.86 18.71 9.96 C19.49 10.05 20.08 10.35 21.05 10.93 L22.8 11.12 L20.95 11.9 C20.76 13.36 19.88 14.92 18.71 16.09 C17.74 17.06 15.99 18.32 13.46 19.01 L8.21 19.69 L4.41 22.7 L6.75 20.08 L1.2 21.73 L9.96 16.48 L8.89 11.42 L4.12 8.69 L5.77 6.65 Z",
-            breast: "M20.9 12.19 C20.56 13.75 19.78 15.02 18.71 16.09 C18.13 16.67 17.55 17.16 17.06 17.55 L18.03 15.02 C18.71 13.95 19.69 12.88 20.9 12.19 Z",
-            cut: "M15.5 12.1 L18.03 15.02",
-            eye: CGPoint(x: 19.2, y: 11.12), eyeRadius: 0.55,
+            outline: "M8.4 19.6 C10.5 17.2 13.5 14.6 16.6 12.6 C17.2 11.0 18.4 9.9 19.6 10.0 C20.4 10.0 21.0 10.4 21.4 10.9 L23.4 11.1 L21.5 11.7 C21.4 14.0 19.6 16.6 16.4 18.2 C13.6 19.6 10.8 20.0 8.4 19.6 Z M9.4 18.9 L2.2 21.6 L5.6 20.9 L4.2 23.4 L10.2 20.2 Z M15.4 13.4 C13.8 9.8 10.8 5.8 6.4 2.4 C7.0 4.3 7.8 5.7 8.9 6.7 L7.8 6.9 C8.6 8.3 9.5 9.4 10.6 10.2 L9.5 10.5 C10.2 11.9 10.9 13.1 11.8 14.2 C12.9 15.3 14.1 15.2 15.4 13.4 Z",
+            breast: "M21.45 12.0 C21.2 14.2 19.6 16.5 16.8 18.0 C17.6 16.2 19.0 13.6 21.45 12.0 Z",
+            cut: "M17.0 12.0 L15.5 14.0",
+            eye: CGPoint(x: 20.0, y: 11.2), eyeRadius: 0.5,
             feet: nil)
 
-        /// Settled on a branch, wings folded.
+        /// Settled on a branch: round head, curved back, wing folded (the
+        /// cut), tail down behind.
         static let perched = Shape(
-            outline: "M1.0 20.7 L5.4 16.1 L16.2 3.9 C16.8 2.8 17.5 2.1 18.2 2.0 C19.0 1.9 19.6 2.1 20.1 2.6 L20.9 3.4 L22.9 3.6 L20.7 4.6 C20.6 5.2 20.6 5.7 20.5 6.2 C20.3 8.0 20.1 9.6 19.9 10.8 C19.6 12.0 19.0 13.0 18.2 13.7 C17.4 14.7 16.6 15.7 15.7 16.4 L10.6 16.8 L2.9 20.9 Z",
-            breast: "M20.55 5.0 C20.5 6.2 20.3 8.6 19.9 10.8 C19.6 12.0 19.0 13.0 18.2 13.7 L17.2 11.7 C17.4 10.2 17.6 8.9 17.9 7.8 C18.4 6.6 19.3 5.6 20.55 5.0 Z",
-            cut: "M7.4 16.1 L17.2 11.7",
-            eye: CGPoint(x: 18.7, y: 3.8), eyeRadius: 0.45,
-            feet: "M11.8 17.0 L13.25 19.8 M13.9 17.0 L15.3 19.8 M7.2 20.2 L20.3 20.2")
+            outline: "M8.8 15.6 C10.6 12.6 13.0 9.4 15.4 6.4 C15.8 4.6 17.0 3.6 18.3 3.7 C19.3 3.8 20.0 4.4 20.4 5.0 L22.6 5.3 L20.5 6.0 C20.9 8.4 20.4 11.6 18.6 13.8 C16.8 15.8 13.8 16.6 11.0 16.4 C9.8 16.3 9.0 16.0 8.8 15.6 Z M10.2 15.0 L2.6 20.6 L4.2 21.4 L11.8 16.4 Z",
+            breast: "M20.5 6.3 C20.8 8.6 20.2 11.6 18.6 13.8 C17.6 12.4 17.4 10.4 17.8 8.6 C18.2 7.3 19.2 6.6 20.5 6.3 Z",
+            cut: "M9.8 15.0 C12.8 13.8 15.6 12.0 17.4 9.4",
+            eye: CGPoint(x: 18.6, y: 5.2), eyeRadius: 0.45,
+            feet: "M13.4 16.5 L14.4 19.6 M15.4 16.2 L16.2 19.6 M8.6 19.8 L21.0 19.8")
     }
 
     /// A path from absolute SVG-style commands (M, L, C, Z), which is how the
