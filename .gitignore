@@ -27,3 +27,6 @@ DerivedData/
 .claude/*
 !.claude/skills/
 local.mk
+
+# JetBrains IDE settings
+.idea/
