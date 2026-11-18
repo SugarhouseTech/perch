@@ -11,16 +11,16 @@ import AppKit
 nonisolated enum MenuBarGlyph {
     static let size = NSSize(width: 18, height: 18)
 
-    static func idle(_ rect: NSRect, _ color: NSColor) {
-        draw(in: rect, color: color, pinned: false)
-    }
-
-    static func pinned(_ rect: NSRect, _ color: NSColor) {
-        draw(in: rect, color: color, pinned: true)
-    }
-
-    private static func draw(in rect: NSRect, color: NSColor, pinned: Bool) {
+    /// - Parameter warning: a permission is missing. An orange dot at the
+    ///   top right, cut out of the pin so it reads at menu bar size, says the
+    ///   menu has something to fix.
+    static func draw(in rect: NSRect, color: NSColor, pinned: Bool, warning: Bool) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        drawPin(in: ctx, rect: rect, color: color, pinned: pinned)
+        if warning { drawWarningDot(in: ctx, rect: rect) }
+    }
+
+    private static func drawPin(in ctx: CGContext, rect: NSRect, color: NSColor, pinned: Bool) {
         let scale = rect.width / 24
         ctx.saveGState()
         defer { ctx.restoreGState() }
@@ -43,6 +43,21 @@ nonisolated enum MenuBarGlyph {
         ctx.move(to: CGPoint(x: 12, y: 14.25))
         ctx.addLine(to: CGPoint(x: 12, y: pinned ? 17.6 : 21))
         ctx.strokePath()
+    }
+
+    private static func drawWarningDot(in ctx: CGContext, rect: NSRect) {
+        let radius = rect.width * 0.16
+        let gap = rect.width * 0.07   // the cut-out ring that sets it apart
+        let center = CGPoint(x: rect.maxX - radius, y: rect.maxY - radius)
+        ctx.saveGState()
+        ctx.setBlendMode(.clear)
+        ctx.fillEllipse(in: CGRect(x: center.x - radius - gap, y: center.y - radius - gap,
+                                   width: (radius + gap) * 2, height: (radius + gap) * 2))
+        ctx.setBlendMode(.normal)
+        ctx.setFillColor(NSColor.systemOrange.cgColor)
+        ctx.fillEllipse(in: CGRect(x: center.x - radius, y: center.y - radius,
+                                   width: radius * 2, height: radius * 2))
+        ctx.restoreGState()
     }
 
     /// The head, collar and skirt. Built per draw, which costs nothing next

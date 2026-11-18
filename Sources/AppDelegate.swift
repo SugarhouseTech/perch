@@ -91,6 +91,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         focusObserver = NSWorkspace.shared.notificationCenter.observeOnMain(NSWorkspace.didActivateApplicationNotification) { [weak self] notification in
             guard let self = self else { return }
             self.recoverEventTapIfNeeded()
+            // Covers coming back from System Settings with a permission
+            // granted or taken away.
+            self.refreshPermissionWarning()
             let myPID = ProcessInfo.processInfo.processIdentifier
             if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                app.processIdentifier != myPID {
@@ -174,28 +177,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Icon
 
+    /// Whether the icon was last drawn with the warning dot.
+    private var iconShowsWarning = false
+
     func updateIcon() {
         let hasPinned = !tracker.pinnedWindows.isEmpty
+        let warning = SetupWindow.isMissingPermission
+        iconShowsWarning = warning
+        // The orange dot needs an image AppKit will not recolour, so with a
+        // warning the image is not a template, and the pin is drawn in the
+        // menu bar's own text colour instead. The pill picks a colour that
+        // contrasts with itself either way.
+        let ownInk = warning && !JorvikMenuBarPill.isEnabled
         let image = JorvikMenuBarPill.icon(
             drawGlyph: { @Sendable rect, color in
-                if hasPinned { MenuBarGlyph.pinned(rect, color) } else { MenuBarGlyph.idle(rect, color) }
+                let ink = ownInk ? Self.menuBarInk() : color
+                MenuBarGlyph.draw(in: rect, color: ink, pinned: hasPinned, warning: warning)
             },
-            glyphSize: MenuBarGlyph.size
+            glyphSize: MenuBarGlyph.size,
+            tint: ownInk ? .labelColor : nil
         )
         image.accessibilityDescription = "WindowPin"
         statusItem?.button?.image = image
+        // The label and tooltip never change, because menu bar managers find
+        // the item by them; the state goes in the value.
+        statusItem?.button?.setAccessibilityValue(
+            warning ? "Needs permission" : hasPinned ? "Window pinned" : nil)
+    }
+
+    /// Redraw the icon if a permission has been granted or lost since it was
+    /// drawn. Cheap enough to call on every app switch, and it only replaces
+    /// the image when the answer changed.
+    private func refreshPermissionWarning() {
+        if SetupWindow.isMissingPermission != iconShowsWarning { updateIcon() }
+    }
+
+    /// What a template image would be drawn in, for the appearance being
+    /// drawn in now (the menu bar's, which follows the wallpaper).
+    nonisolated private static func menuBarInk() -> NSColor {
+        let dark = NSAppearance.currentDrawing().bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return dark ? .white : NSColor(white: 0, alpha: 0.85)
     }
 
     // MARK: - Dynamic menu (NSMenuDelegate)
 
+    // Laid out as: anything to fix, the pin action, the pins, then the app.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        refreshPermissionWarning()
 
-        let aboutItem = NSMenuItem(title: "About WindowPin", action: #selector(openAbout), keyEquivalent: "")
-        aboutItem.target = self
-        menu.addItem(aboutItem)
-        menu.addItem(NSMenuItem.separator())
-
+        // First, while it stands in the way: the menu bar icon's orange dot
+        // points here.
         if SetupWindow.isMissingPermission {
             let setupItem = NSMenuItem(title: "\u{26A0}\u{FE0E} Finish Setting Up\u{2026}", action: #selector(showSetup), keyEquivalent: "")
             setupItem.target = self
@@ -203,7 +235,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
-        // Pin/Unpin action
         // The last other app is only a fallback, for when WindowPin itself is
         // in front. Its focused window is asked for now, so a window closed
         // since is never offered.
@@ -218,6 +249,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 : "Pin \"\(truncate(displayName, max: 30))\""
             let item = NSMenuItem(title: label, action: #selector(toggleFrontmost), keyEquivalent: "")
             item.representedObject = fw
+            // Shown so the shortcut can be learnt from here.
+            if let key = shortcutKeyEquivalent {
+                item.keyEquivalent = key
+                item.keyEquivalentModifierMask = shortcutModifiers
+            }
             menu.addItem(item)
         } else {
             let item = NSMenuItem(title: "No window to pin", action: nil, keyEquivalent: "")
@@ -225,26 +261,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         }
 
-        // Pinned windows list
         if !tracker.pinnedWindows.isEmpty {
             menu.addItem(NSMenuItem.separator())
-
-            let header = NSMenuItem(title: "Pinned Windows", action: nil, keyEquivalent: "")
-            header.isEnabled = false
-            menu.addItem(header)
-
-            let sorted = tracker.pinnedWindows.sorted { $0.displayLabel < $1.displayLabel }
-            for pw in sorted {
-                let item = NSMenuItem(title: "  \(pw.displayLabel)", action: #selector(unpinMenuItem(_:)), keyEquivalent: "")
+            menu.addItem(NSMenuItem.sectionHeader(title: "Pinned"))
+            let front = targetWindow?.ownerPID
+            for pw in PinPolicy.menuOrder(tracker.pinnedWindows, frontPID: front) {
+                let item = NSMenuItem(title: pw.displayLabel, action: #selector(unpinMenuItem(_:)), keyEquivalent: "")
                 item.representedObject = pw.windowID
                 item.state = .on
+                item.toolTip = "Unpin"
                 menu.addItem(item)
             }
-
-            menu.addItem(NSMenuItem.separator())
-
-            let unpinAll = NSMenuItem(title: "Unpin All", action: #selector(unpinAllAction), keyEquivalent: "")
-            menu.addItem(unpinAll)
+            menu.addItem(NSMenuItem(title: "Unpin All", action: #selector(unpinAllAction), keyEquivalent: ""))
         }
 
         menu.addItem(NSMenuItem.separator())
@@ -252,8 +280,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let settingsItem = NSMenuItem(title: "Settings\u{2026}", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
-
-        menu.addItem(NSMenuItem.separator())
+        let aboutItem = NSMenuItem(title: "About WindowPin", action: #selector(openAbout), keyEquivalent: "")
+        aboutItem.target = self
+        menu.addItem(aboutItem)
         menu.addItem(NSMenuItem(title: "Quit WindowPin", action: #selector(quit), keyEquivalent: "q"))
     }
 
@@ -354,6 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         wplog("registerHotkey: Accessibility granted, hotkey active")
         permissionTimer?.invalidate()
         permissionTimer = nil
+        refreshPermissionWarning()
     }
 
     /// Revoking Accessibility (or removing and re-adding the app, as the README
@@ -462,6 +492,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // Shortcut recording is handled by JorvikShortcutRecorder in JorvikKit
+
+    /// The shortcut's key as a menu item key equivalent, or nil when there
+    /// is no shortcut or its key is not a plain character (an arrow, a
+    /// function key): AppKit draws those from codes this does not map, and
+    /// the menu simply shows no shortcut for them.
+    private var shortcutKeyEquivalent: String? {
+        guard shortcutKeyCode != 0 || !shortcutModifiers.isEmpty else { return nil }
+        let key = keyCodeToCharacter(shortcutKeyCode)
+        // A printable ASCII character: a letter, digit or punctuation key.
+        guard key.count == 1, key.unicodeScalars.allSatisfy({ (33..<127).contains($0.value) }) else { return nil }
+        return key.lowercased()
+    }
 
     func shortcutDisplayString() -> String {
         // Say so rather than rendering key code 0 as the letter A.

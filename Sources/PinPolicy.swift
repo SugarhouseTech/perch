@@ -95,4 +95,18 @@ nonisolated enum PinPolicy {
                                     frontPID: pid_t?) -> Bool {
         pins.contains { $0.isCropped && $0.targetPID == frontPID }
     }
+
+    // MARK: - The menu's list of pins
+
+    /// The order pins are listed in the menu: the front app's first, since
+    /// that is most likely the one being thought about, then by name.
+    static func menuOrder(_ pinned: some Collection<PinnedWindow>, frontPID: pid_t?) -> [PinnedWindow] {
+        pinned.sorted { a, b in
+            let aFront = a.ownerPID == frontPID, bFront = b.ownerPID == frontPID
+            if aFront != bFront { return aFront }
+            let byName = a.displayLabel.localizedStandardCompare(b.displayLabel)
+            if byName != .orderedSame { return byName == .orderedAscending }
+            return a.windowID < b.windowID  // a stable order for equal names
+        }
+    }
 }
