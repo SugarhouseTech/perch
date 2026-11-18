@@ -8,14 +8,17 @@ import AppKit
 /// - On the window you are working in, a faint pin: click it to pin that window.
 ///
 /// Each badge is WindowPin's own small window, ordered just above the window it
-/// belongs to, so anything covering that window covers the badge too. Both
-/// kinds can be turned off in Settings.
+/// belongs to, so anything covering that window covers the badge too. The one
+/// on the window in use sits a layer up, as nothing ordinary covers that
+/// window. Both kinds can be turned off in Settings.
 ///
 /// The app makes one, which lives as long as the app, so it never removes its
 /// observers and has no deinit.
 final class PinBadgeController {
 
     static let pinnedKey = "badgePinnedWindows"
+    /// The focused window's button: see `updateFocusedBadge`.
+    static let focusedLevel = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue + 1)
     static let focusedKey = "badgeFocusedWindow"
 
     static var showsPinned: Bool { UserDefaults.standard.object(forKey: pinnedKey) as? Bool ?? true }
@@ -188,7 +191,11 @@ final class PinBadgeController {
             // up. Hiding the badge then would also end the checks still
             // waiting on its title bar. Keep the last answer for the same app;
             // a window it has closed since drops out when its frame is looked up.
-            wplog("badge: focused window of pid=\(pid) not answered (err \(error)), keeping last")
+            if error == AXError.cannotComplete.rawValue {
+                wplog("badge: focused window of pid=\(pid) not answered (err \(error)), keeping last")
+            } else {
+                wplog("badge: focused window of pid=\(pid) failed (err \(error)), keeping last")
+            }
             focusedWindow = BadgePlacement.focusedAfterNoAnswer(
                 last: focusedWindow, lastPID: \.ownerPID, answeringPID: pid)
         }
@@ -296,6 +303,9 @@ final class PinBadgeController {
               // presentation, a game. There is no title bar for the badge to
               // sit in there, only the corner of the content.
               !NSScreen.screens.contains(where: { $0.frame == frame }) else {
+            if focusedBadge.isVisible {
+                wplog("badge: hiding focused button (\(focusedWindow.map { "wid=\($0.windowID)" } ?? "no focused window"))")
+            }
             focusedBadge.orderOut(nil)
             return
         }
@@ -305,7 +315,13 @@ final class PinBadgeController {
             self?.toggle(full?.windowID == fw.windowID ? full! : fw)
         }
         let spot = slots.spot(pid: fw.ownerPID, windowID: fw.windowID, frame: frame, side: BadgePanel.side)
-        focusedBadge.show(on: frame, at: spot, level: .normal, above: Int(fw.windowID))
+        // One layer above ordinary windows. A click on a window raises it to
+        // the top of the ordinary layer, above this button, which is another
+        // app's window, until the click's refresh puts the button back: it
+        // blinked on every click (measured at 4-9 ms, on mouse up). The window
+        // in use is already the front ordinary window, so a layer up covers
+        // nothing that should be in front of the button.
+        focusedBadge.show(on: frame, at: spot, level: Self.focusedLevel, above: Int(fw.windowID))
     }
 
     /// The floating pin shows the window scaled to its own size, so a spot
@@ -327,7 +343,7 @@ final class PinBadgeController {
         case window(ForeignWindow)
         /// No ordinary window of another app has focus.
         case noWindow
-        /// The app did not answer in time.
+        /// The app did not answer: it was busy, or failed the question.
         case noAnswer(pid_t, Int32)
     }
 
@@ -339,8 +355,13 @@ final class PinBadgeController {
         AXUIElementSetMessagingTimeout(axApp, 0.1)
         var ref: AnyObject?
         let err = AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &ref)
-        if err == .cannotComplete { return .noAnswer(app.processIdentifier, err.rawValue) }
-        guard err == .success, let window = WindowLevelManager.element(from: ref) else { return .noWindow }
+        // Any failure counts as no answer, not as no window. An app handling
+        // a click, above all one with web views inside its window, can fail
+        // the question for a moment, and treating that as "no window" hid the
+        // button until the button came up again: it blinked on every click.
+        // A window that really has gone drops out when its frame is looked up.
+        guard err == .success else { return .noAnswer(app.processIdentifier, err.rawValue) }
+        guard let window = WindowLevelManager.element(from: ref) else { return .noWindow }
         let wid = WindowLevelManager.windowID(of: window)
         WindowSurvey.record(window, windowID: wid, app: app)
         guard let wid else { return .noWindow }

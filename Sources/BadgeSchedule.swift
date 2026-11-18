@@ -150,7 +150,8 @@ nonisolated enum BadgePlacement {
         return scaled
     }
 
-    /// What to do with the focused window when its app did not answer in time.
+    /// What to do with the focused window when its app did not answer, busy
+    /// or failing the question for a moment.
     /// A busy app can miss the short wait, and hiding the badge then would also
     /// end the checks still waiting on its title bar, so the last window is
     /// kept, but only for the same app.
