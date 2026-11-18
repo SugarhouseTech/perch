@@ -19,9 +19,11 @@ macOS 14 (Sonoma) or later.
 ## Install
 
 Perch has no packaged releases yet. Build it from source with the Xcode 26
-command line tools or later (Swift 6.2):
+command line tools or later (Swift 6.2). Nothing else is needed: no Xcode
+project, no package downloads, no Apple developer account.
 
 ```sh
+xcode-select --install   # if `swift --version` says less than 6.2
 git clone https://github.com/SugarhouseTech/perch.git
 cd perch
 make install   # builds and copies Perch.app to /Applications
@@ -208,6 +210,19 @@ put this in a `local.mk` beside the Makefile (git ignores it):
 LOCAL_SIGN_ID   := Developer ID Application: Your Name (TEAMID)
 LOCAL_BUNDLE_ID := com.example.Perch
 ```
+
+`make release` builds the download: a universal app for Apple silicon and
+Intel, signed with that Developer ID, notarised by Apple and stapled, then
+zipped with a SHA-256 beside it in `.build/release-app`. It runs the tests
+first, builds from scratch and refuses uncommitted changes, so a commit always
+gives the same app. The version comes from `Info.plist` and the build number
+from the commit count. It needs a notarytool profile, made once:
+
+```sh
+xcrun notarytool store-credentials perch-notary --apple-id you@example.com --team-id TEAMID
+```
+
+The steps are in [scripts/release.sh](scripts/release.sh).
 
 To work on Perch, start with [AGENTS.md](AGENTS.md): it says where logic lives
 and how it is tested.
