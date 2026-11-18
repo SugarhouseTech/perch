@@ -409,7 +409,9 @@ class WindowOverlay: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
-    private func activateRealWindow() {
+    /// Put the pin behind and bring its real window forward, with the
+    /// keyboard. Also used when the user unpins.
+    func activateRealWindow() {
         wplog("overlay: switching to real window wid=\(targetWindowID)")
         sendBehind()
         // Explicitly activating: this is the deliberate "take me to the real
