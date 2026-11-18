@@ -2,7 +2,7 @@ import AppKit
 
 /// Small perch buttons in the top-right corner of windows' title bars.
 ///
-/// - On every perched window, a navy button with a perched robin: click it to
+/// - On every perched window, an orange-ringed button with a perched robin: click it to
 ///   unperch. It follows the floating copy while that is showing, and the
 ///   real window while you are in its app.
 /// - On the window you are working in, a faint button with a robin in flight:
@@ -460,23 +460,26 @@ private final class BadgeView: NSView {
     override func mouseEntered(with event: NSEvent) { hovering = true }
     override func mouseExited(with event: NSEvent) { hovering = false }
 
-    /// A perched window's button: the dusk navy of the app icon's sky. Not
-    /// orange, which would swallow the robin's breast.
-    private static let perchedFill = NSColor(srgbRed: 0.13, green: 0.17, blue: 0.30, alpha: 1)
+    /// A perched window's button must be obvious at a glance, as the old
+    /// solid orange one was: a ring of the robin's orange round a dark centre,
+    /// so the robin's own orange breast still shows inside it.
+    private static let perchedCentre = NSColor(white: 0.13, alpha: 1)
 
     override func draw(_ dirtyRect: NSRect) {
-        let circle = NSBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1))
-        let fill: NSColor = pinned
-            ? Self.perchedFill
-            : NSColor.gray.withAlphaComponent(hovering ? 0.85 : 0.45)
-        fill.setFill()
-        circle.fill()
-
-        // The same robin as the menu bar. Hovering shows what a click will
-        // do: a flying robin lands to perch the window, a perched one takes
-        // off to unperch it.
-        let showsPerched = pinned != hovering
-        MenuBarGlyph.draw(in: bounds.insetBy(dx: 3.5, dy: 3.5), color: .white,
-                          pinned: showsPerched, warning: false)
+        let disc = bounds.insetBy(dx: 1, dy: 1)
+        if pinned {
+            MenuBarGlyph.breast.setFill()
+            NSBezierPath(ovalIn: disc).fill()
+            (hovering ? Self.perchedCentre.withAlphaComponent(0.8) : Self.perchedCentre).setFill()
+            NSBezierPath(ovalIn: disc.insetBy(dx: 2, dy: 2)).fill()
+        } else {
+            NSColor.gray.withAlphaComponent(hovering ? 0.85 : 0.5).setFill()
+            NSBezierPath(ovalIn: disc).fill()
+        }
+        // The same robin as the menu bar: in flight on a window that can be
+        // perched, perched on one that is. Hovering only brightens the
+        // button; showing the other bird read as the state having changed.
+        MenuBarGlyph.draw(in: bounds.insetBy(dx: pinned ? 4.5 : 3.5, dy: pinned ? 4.5 : 3.5),
+                          color: .white, pinned: pinned, warning: false)
     }
 }
