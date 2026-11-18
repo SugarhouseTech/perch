@@ -1,6 +1,6 @@
 import AppKit
 
-struct PinnedWindow: Hashable {
+nonisolated struct PinnedWindow: Hashable {
     let windowID: UInt32
     let ownerPID: pid_t
     let ownerName: String
@@ -27,6 +27,8 @@ struct PinnedWindow: Hashable {
     }
 }
 
+/// The app's one tracker. It lives as long as the app, so it never removes its
+/// observers and has no deinit.
 final class PinnedWindowTracker {
 
     private(set) var pinnedWindows: Set<PinnedWindow> = []
@@ -34,10 +36,6 @@ final class PinnedWindowTracker {
     private var pollTimer: Timer?
     /// Runs only while a pin is cropped. See `updateCroppedLayering`.
     private var layeringTimer: Timer?
-    private var activationObserver: NSObjectProtocol?
-    private var terminationObserver: NSObjectProtocol?
-    private var wakeObserver: NSObjectProtocol?
-    private var screensObserver: NSObjectProtocol?
 
     /// Called whenever the pinned set changes.
     var onChange: (() -> Void)?
@@ -51,16 +49,6 @@ final class PinnedWindowTracker {
         observeAppActivation()
         observeAppTermination()
         observeWakeAndDisplays()
-    }
-
-    deinit {
-        pollTimer?.invalidate()
-        if let obs = activationObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(obs)
-        }
-        if let obs = terminationObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(obs)
-        }
     }
 
     // MARK: - Public API
@@ -164,11 +152,7 @@ final class PinnedWindowTracker {
     // MARK: - App activation observer
 
     private func observeAppActivation() {
-        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
+        NSWorkspace.shared.notificationCenter.observeOnMain(NSWorkspace.didActivateApplicationNotification) { [weak self] notification in
             guard let self = self, !self.pinnedWindows.isEmpty else { return }
 
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
@@ -202,7 +186,7 @@ final class PinnedWindowTracker {
     /// restarts itself a few times and then gives up, which a long sleep
     /// outlasts, leaving the pin on a frozen frame.
     private func observeWakeAndDisplays() {
-        let revive: (Notification) -> Void = { [weak self] _ in
+        let revive: @MainActor (Notification) -> Void = { [weak self] _ in
             self?.pruneQuietUntil = ProcessInfo.processInfo.systemUptime + 10
             // A moment for the displays to settle; a stream started at once
             // is as likely to be stopped again.
@@ -210,10 +194,8 @@ final class PinnedWindowTracker {
                 self?.overlays.values.forEach { $0.reviveStreamIfNeeded(force: true) }
             }
         }
-        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main, using: revive)
-        screensObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main, using: revive)
+        NSWorkspace.shared.notificationCenter.observeOnMain(NSWorkspace.screensDidWakeNotification, revive)
+        NotificationCenter.default.observeOnMain(NSApplication.didChangeScreenParametersNotification, revive)
     }
 
     // MARK: - Cropped pins
@@ -233,8 +215,7 @@ final class PinnedWindowTracker {
             pins: overlays.values.map { (isCropped: $0.isCropped, targetPID: $0.targetPID) },
             frontPID: frontPID)
         if needed, layeringTimer == nil {
-            layeringTimer = Timer.scheduledTimer(withTimeInterval: Self.layeringInterval,
-                                                 repeats: true) { [weak self] _ in
+            layeringTimer = Timer.onMain(every: Self.layeringInterval, repeats: true) { [weak self] in
                 self?.updateCroppedLayering()
             }
             layeringTimer?.tolerance = 0.1
@@ -282,7 +263,7 @@ final class PinnedWindowTracker {
             pollTimer?.invalidate()
             pollTimer = nil
         } else if pollTimer == nil {
-            pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            pollTimer = Timer.onMain(every: 2.0, repeats: true) { [weak self] in
                 self?.pruneClosedWindows()
             }
             // Lets macOS fire it together with other timers.
@@ -337,11 +318,7 @@ final class PinnedWindowTracker {
     // MARK: - App termination
 
     private func observeAppTermination() {
-        terminationObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didTerminateApplicationNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
+        NSWorkspace.shared.notificationCenter.observeOnMain(NSWorkspace.didTerminateApplicationNotification) { [weak self] notification in
             guard let self = self,
                   let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             let pid = app.processIdentifier

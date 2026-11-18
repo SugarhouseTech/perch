@@ -1,5 +1,22 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 import PackageDescription
+
+// Swift 6 language mode: the compiler checks which thread or actor each piece
+// of state belongs to. The upcoming features are ones Swift 7 turns on; each
+// is adopted early because it makes the code say more of what it means.
+let swiftSettings: [SwiftSetting] = [
+    // `any P` for an existential, so its cost is visible at the use site.
+    .enableUpcomingFeature("ExistentialAny"),
+    // A file sees only the members of modules it imports itself.
+    .enableUpcomingFeature("MemberImportVisibility"),
+    // A main actor type's protocol conformances are main actor too.
+    .enableUpcomingFeature("InferIsolatedConformances"),
+    // A nonisolated async function runs on its caller's actor, not a
+    // background thread, unless it says `@concurrent`.
+    .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+    // A `weak` capture that is never reassigned is a `let`.
+    .enableUpcomingFeature("ImmutableWeakCaptures"),
+]
 
 let package = Package(
     name: "WindowPin",
@@ -8,6 +25,10 @@ let package = Package(
         .executableTarget(
             name: "WindowPin",
             path: "Sources",
+            // An app runs on the main thread unless it says otherwise. The
+            // pure logic (see AGENTS.md) is marked `nonisolated`, so tests
+            // and background queues can call it directly.
+            swiftSettings: swiftSettings + [.defaultIsolation(MainActor.self)],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("ApplicationServices"),
@@ -18,7 +39,8 @@ let package = Package(
         .testTarget(
             name: "WindowPinTests",
             dependencies: ["WindowPin"],
-            path: "Tests/WindowPinTests"
+            path: "Tests/WindowPinTests",
+            swiftSettings: swiftSettings
         ),
     ]
 )

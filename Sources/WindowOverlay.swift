@@ -6,7 +6,7 @@ import ScreenCaptureKit
 /// unchanged for many macOS releases and relied on by window managers that
 /// need to join the two worlds; there is no public equivalent.
 @_silgen_name("_AXUIElementGetWindow")
-func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMutablePointer<CGWindowID>) -> AXError
+nonisolated func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMutablePointer<CGWindowID>) -> AXError
 
 /// A floating panel that mirrors a foreign window's content via a live
 /// ScreenCaptureKit stream. Acts as a live "picture-in-picture" view that
@@ -82,8 +82,8 @@ class WindowOverlay: NSPanel {
     /// The panel's frame after the last change that was accounted for, so a
     /// resize can tell which edges moved and by how much.
     private var lastPanelFrame: NSRect = .zero
-    private var resizeObserver: NSObjectProtocol?
-    private var occlusionObserver: NSObjectProtocol?
+    private var resizeObserver: (any NSObjectProtocol)?
+    private var occlusionObserver: (any NSObjectProtocol)?
     /// When the stream runs, and what to do when it will not: every decision
     /// about it is made there, and carried out here. See `send`.
     private var life = StreamLifecycle()
@@ -210,14 +210,10 @@ class WindowOverlay: NSPanel {
         // Look the window up now, ready for when the pin is first shown.
         send(.created)
 
-        resizeObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didResizeNotification, object: self, queue: .main
-        ) { [weak self] _ in
+        resizeObserver = NotificationCenter.default.observeOnMain(NSWindow.didResizeNotification, object: self) { [weak self] _ in
             self?.cropFollowsResize()
         }
-        occlusionObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didChangeOcclusionStateNotification, object: self, queue: .main
-        ) { [weak self] _ in
+        occlusionObserver = NotificationCenter.default.observeOnMain(NSWindow.didChangeOcclusionStateNotification, object: self) { [weak self] _ in
             self?.occlusionChanged()
         }
     }
@@ -272,7 +268,7 @@ class WindowOverlay: NSPanel {
     /// lifecycle sees to that.
     private func resolveSCWindow() {
         Task { @MainActor in
-            let result: Result<SCShareableContent, Error>
+            let result: Result<SCShareableContent, any Error>
             do {
                 result = .success(try await SCShareableContent.excludingDesktopWindows(
                     false, onScreenWindowsOnly: false
@@ -771,6 +767,11 @@ class WindowOverlay: NSPanel {
         send(.removed)
         AXScroller.forget(windowID: targetWindowID)
         cancelGesture()
+        for token in [resizeObserver, occlusionObserver].compactMap({ $0 }) {
+            NotificationCenter.default.removeObserver(token)
+        }
+        resizeObserver = nil
+        occlusionObserver = nil
         orderOut(nil)
     }
 
@@ -894,19 +895,16 @@ class WindowOverlay: NSPanel {
             return
         }
         stream = newStream
-        newStream.startCapture { [weak self] error in
-            guard let error = error else {
+        Task { [weak self] in
+            do {
+                try await newStream.startCapture()
                 // Stopped or replaced while it was starting: a stop sent then
                 // fails, and the stream would go on capturing with no owner.
-                DispatchQueue.main.async {
-                    guard self?.stream !== newStream else { return }
-                    wplog("overlay: stopping a stream replaced while starting")
-                    newStream.stopCapture { _ in }
-                }
-                return
-            }
-            wplog("overlay: startCapture failed wid=\(self?.targetWindowID ?? 0): \(error)")
-            DispatchQueue.main.async {
+                guard self?.stream !== newStream else { return }
+                wplog("overlay: stopping a stream replaced while starting")
+                try? await newStream.stopCapture()
+            } catch {
+                wplog("overlay: startCapture failed wid=\(self?.targetWindowID ?? 0): \(error)")
                 guard let self, self.stream === newStream else { return }
                 self.stream = nil
                 self.send(.streamFailed)
@@ -920,8 +918,8 @@ class WindowOverlay: NSPanel {
         reconfigureTimer = nil
         guard let stream = stream else { return }
         self.stream = nil
-        stream.stopCapture { error in
-            if let error = error {
+        Task {
+            do { try await stream.stopCapture() } catch {
                 wplog("overlay: stopCapture error: \(error)")
             }
         }
@@ -930,14 +928,15 @@ class WindowOverlay: NSPanel {
     /// Apply the current capture-rate setting / frame size to a running stream.
     func applyCaptureRate() {
         guard let stream = stream else { return }
-        stream.updateConfiguration(makeStreamConfig(pixelScale: streamPixelScale)) { [weak self] error in
-            guard let error = error else { return }
-            wplog("overlay: updateConfiguration (rate) error: \(error)")
-            // Forget what the stream was last set up for, so the next frame
-            // sync sees a difference and tries again. Left as it was, the
-            // stream kept its old size for good, and a cropped pin, which
-            // waits for a frame of the new size, never updated again.
-            DispatchQueue.main.async {
+        let config = makeStreamConfig(pixelScale: streamPixelScale)
+        Task { [weak self] in
+            do { try await stream.updateConfiguration(config) } catch {
+                wplog("overlay: updateConfiguration (rate) error: \(error)")
+                // Forget what the stream was last set up for, so the next
+                // frame sync sees a difference and tries again. Left as it
+                // was, the stream kept its old size for good, and a cropped
+                // pin, which waits for a frame of the new size, never updated
+                // again.
                 guard let self, self.stream === stream else { return }
                 self.lastStreamGeometry = .zero
             }
@@ -965,7 +964,7 @@ class WindowOverlay: NSPanel {
         }
         guard reconfigureTimer == nil else { return }
         // Common modes, so it fires during the live resize itself.
-        let timer = Timer(timeInterval: wait, repeats: false) { [weak self] _ in
+        let timer = Timer.onMainUnscheduled(every: wait, repeats: false) { [weak self] in
             guard let self else { return }
             self.reconfigureTimer = nil
             self.lastReconfigure = CACurrentMediaTime()
@@ -1031,7 +1030,7 @@ class WindowOverlay: NSPanel {
 
     private func startFrameSync() {
         frameSyncTimer?.invalidate()
-        frameSyncTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        frameSyncTimer = Timer.onMain(every: 0.5, repeats: true) { [weak self] in
             self?.syncFrameWithTarget()
         }
         frameSyncTimer?.tolerance = 0.1
@@ -1101,22 +1100,31 @@ class WindowOverlay: NSPanel {
                                            primaryHeight: screenHeight)
     }
 
-    deinit {
-        if let resizeObserver { NotificationCenter.default.removeObserver(resizeObserver) }
-        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
-        frameSyncTimer?.invalidate()
-        reconfigureTimer?.invalidate()
-        if let stream = stream {
-            stream.stopCapture { _ in }
-        }
-    }
+    // No deinit: `hideOverlay()` is the teardown, and the tracker calls it
+    // before letting a pin go. A main actor class's deinit can run on any
+    // thread, where none of this cleanup would be safe.
 }
 
 // MARK: - SCStreamOutput / SCStreamDelegate
 
+// ScreenCaptureKit calls these on `sampleQueue`, not the main thread, so they
+// are nonisolated and hand what they have to the main thread themselves.
 extension WindowOverlay: SCStreamOutput, SCStreamDelegate {
 
-    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+    /// A frame on its way to the main thread. Once handed over, nothing on the
+    /// sample queue touches it again, which the compiler cannot see.
+    nonisolated private struct Frame: @unchecked Sendable {
+        let pixelBuffer: CVPixelBuffer
+        let surface: IOSurfaceRef
+    }
+
+    /// Whether a callback came from the stream now running. The stream itself
+    /// stays on its own queue; only its identity crosses to the main thread.
+    private func isCurrent(_ stream: ObjectIdentifier) -> Bool {
+        self.stream.map(ObjectIdentifier.init) == stream
+    }
+
+    nonisolated func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen,
               let attachments = CMSampleBufferGetSampleAttachmentsArray(
                   sampleBuffer, createIfNecessary: false
@@ -1126,11 +1134,13 @@ extension WindowOverlay: SCStreamOutput, SCStreamDelegate {
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
               let surface = CVPixelBufferGetIOSurface(pixelBuffer) else { return }
 
-        let surfaceRef = surface.takeUnretainedValue()
+        let frame = Frame(pixelBuffer: pixelBuffer, surface: surface.takeUnretainedValue())
+        let from = ObjectIdentifier(stream)
         DispatchQueue.main.async { [weak self] in
             // Frames from a stream already replaced or stopped can still be on
             // their way here. They are of the old size or the old crop.
-            guard let self = self, self.stream === stream else { return }
+            guard let self, self.isCurrent(from) else { return }
+            let pixelBuffer = frame.pixelBuffer, surfaceRef = frame.surface
             self.framesReceived += 1
             if !self.didLogFirstFrame {
                 self.didLogFirstFrame = true
@@ -1161,12 +1171,13 @@ extension WindowOverlay: SCStreamOutput, SCStreamDelegate {
         }
     }
 
-    func stream(_ stream: SCStream, didStopWithError error: Error) {
+    nonisolated func stream(_ stream: SCStream, didStopWithError error: any Error) {
         wplog("overlay: stream stopped wid=\(targetWindowID): \(error)")
+        let from = ObjectIdentifier(stream)
         DispatchQueue.main.async { [weak self] in
             // A stream stopped on purpose can report an error on its way out;
             // that is not a reason to restart the one that replaced it.
-            guard let self = self, self.stream === stream else { return }
+            guard let self, self.isCurrent(from) else { return }
             self.stream = nil
             // Window may have closed (tracker will prune it), or capture broke
             // (display reconfigure) — retry while we're still pinned-visible.

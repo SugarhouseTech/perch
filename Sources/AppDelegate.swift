@@ -16,7 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// opens, not at every app switch.
     private var lastForeignApp: NSRunningApplication?
     private var badges: PinBadgeController?
-    private var focusObserver: NSObjectProtocol?
+    private var focusObserver: (any NSObjectProtocol)?
 
     var shortcutKeyCode: UInt16 = 35
     var shortcutModifiers: NSEvent.ModifierFlags = [.command, .control]
@@ -68,10 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         createStatusItem()
 
-        NotificationCenter.default.addObserver(
-            forName: JorvikStatusItemVisibility.didChangeNotification,
-            object: nil, queue: .main
-        ) { [weak self] _ in
+        NotificationCenter.default.observeOnMain(JorvikStatusItemVisibility.didChangeNotification) { [weak self] _ in
             self?.applyStatusItemVisibility()
         }
 
@@ -91,11 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.showPinFeedback(wasPinned: wasPinned, window: fw)
         }
 
-        focusObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
+        focusObserver = NSWorkspace.shared.notificationCenter.observeOnMain(NSWorkspace.didActivateApplicationNotification) { [weak self] notification in
             guard let self = self else { return }
             self.recoverEventTapIfNeeded()
             let myPID = ProcessInfo.processInfo.processIdentifier
@@ -110,10 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Redraw the status icon when the display configuration changes — the
         // menu bar's effective thickness can shrink (e.g. moving from a notched
         // display to an external one) and leave the pre-rendered pill cropped.
-        NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil, queue: .main
-        ) { [weak self] _ in
+        NotificationCenter.default.observeOnMain(NSApplication.didChangeScreenParametersNotification) { [weak self] _ in
             self?.updateIcon()
         }
 
@@ -339,7 +329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 suspensionBehavior: .deliverImmediately)
         }
         permissionTimer?.invalidate()
-        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in self?.retryEventTap() }
+        let timer = Timer.onMainUnscheduled(every: 30, repeats: true) { [weak self] in self?.retryEventTap() }
         timer.tolerance = 5
         RunLoop.main.add(timer, forMode: .common)
         permissionTimer = timer

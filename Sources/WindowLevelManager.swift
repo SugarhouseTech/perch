@@ -19,7 +19,7 @@ import Foundation
 // `createFile`, which TRUNCATED the log on every launch and wrote for every
 // user whether they wanted it or not. /tmp is shared and world-readable, and
 // this log records PINNED WINDOW TITLES.
-let wpLogDirectory: URL = {
+nonisolated let wpLogDirectory: URL = {
     let logs = FileManager.default
         .urls(for: .libraryDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("Logs", isDirectory: true)
@@ -28,9 +28,9 @@ let wpLogDirectory: URL = {
                                              attributes: [.posixPermissions: 0o700])
     return logs
 }()
-private let wpLogPath = wpLogDirectory.appendingPathComponent("windowpin.log").path
-private let wpLogQueue = DispatchQueue(label: "tech.sugarhouse.WindowPin.log")
-private let wpLogFmt: DateFormatter = {
+nonisolated private let wpLogPath = wpLogDirectory.appendingPathComponent("windowpin.log").path
+nonisolated private let wpLogQueue = DispatchQueue(label: "tech.sugarhouse.WindowPin.log")
+nonisolated private let wpLogFmt: DateFormatter = {
     let f = DateFormatter()
     f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
     return f
@@ -39,13 +39,13 @@ private let wpLogFmt: DateFormatter = {
 /// The message is an `@autoclosure` so a disabled call builds no string. Most
 /// sites here fire on a state change, but the event forwarder logs per scroll
 /// event, which arrives continuously while the user is scrolling.
-func wplog(_ msg: @autoclosure () -> String) {
+nonisolated func wplog(_ msg: @autoclosure () -> String) {
     guard UserDefaults.standard.bool(forKey: "debugLogging") else { return }
     wpAppend("\(wpLogFmt.string(from: Date()))  \(msg())\n", to: wpLogPath)
 }
 
 /// Append a line to a file in the log directory, off the main thread.
-func wpAppend(_ line: String, to path: String) {
+nonisolated func wpAppend(_ line: String, to path: String) {
     wpLogQueue.async {
         guard let data = line.data(using: .utf8) else { return }
         // O_NOFOLLOW + 0700 parent dir closes the symlink-attack vector.
@@ -121,7 +121,7 @@ enum WindowLevelManager {
     ///
     /// - Parameter timeout: the longest to wait on the app for each answer.
     ///   Without one, the default applies.
-    static func axWindow(pid: pid_t, windowID: UInt32, timeout: Float? = nil) -> AXUIElement? {
+    nonisolated static func axWindow(pid: pid_t, windowID: UInt32, timeout: Float? = nil) -> AXUIElement? {
         let app = AXUIElementCreateApplication(pid)
         if let timeout { AXUIElementSetMessagingTimeout(app, timeout) }
         var windowsRef: AnyObject?
@@ -135,13 +135,13 @@ enum WindowLevelManager {
 
     /// The window number of an Accessibility window, or nil if the app will
     /// not say.
-    static func windowID(of axWindow: AXUIElement) -> CGWindowID? {
+    nonisolated static func windowID(of axWindow: AXUIElement) -> CGWindowID? {
         var wid: CGWindowID = 0
         guard _AXUIElementGetWindow(axWindow, &wid) == .success, wid != 0 else { return nil }
         return wid
     }
 
-    private static func matchesWindowID(axWindow: AXUIElement, pid: pid_t, targetWID: UInt32) -> Bool {
+    nonisolated private static func matchesWindowID(axWindow: AXUIElement, pid: pid_t, targetWID: UInt32) -> Bool {
         // Ask the window its number first. The frame match below only sees
         // windows on the current space and not minimised, so a pin whose
         // window was elsewhere silently stopped scrolling and raising, and it
@@ -189,28 +189,31 @@ enum WindowLevelManager {
 
     // MARK: - Reading Accessibility values
     //
+    // These, and finding a window by number, are only Accessibility and
+    // window-list calls, so `AXScroller` uses them from its own queue.
+    //
     // What comes back from another app is whatever that app chose to send. A
     // forced cast of it to the expected type crashes WindowPin when an app
     // answers with something else, so the type is checked first.
 
-    static func element(from ref: AnyObject?) -> AXUIElement? {
+    nonisolated static func element(from ref: AnyObject?) -> AXUIElement? {
         guard let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else { return nil }
         return (ref as! AXUIElement)
     }
 
-    static func point(from ref: AnyObject?) -> CGPoint? {
+    nonisolated static func point(from ref: AnyObject?) -> CGPoint? {
         var point = CGPoint.zero
         guard let value = axValue(from: ref), AXValueGetValue(value, .cgPoint, &point) else { return nil }
         return point
     }
 
-    static func size(from ref: AnyObject?) -> CGSize? {
+    nonisolated static func size(from ref: AnyObject?) -> CGSize? {
         var size = CGSize.zero
         guard let value = axValue(from: ref), AXValueGetValue(value, .cgSize, &size) else { return nil }
         return size
     }
 
-    private static func axValue(from ref: AnyObject?) -> AXValue? {
+    nonisolated private static func axValue(from ref: AnyObject?) -> AXValue? {
         guard let ref, CFGetTypeID(ref) == AXValueGetTypeID() else { return nil }
         return (ref as! AXValue)
     }

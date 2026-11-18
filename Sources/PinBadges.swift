@@ -10,6 +10,9 @@ import AppKit
 /// Each badge is WindowPin's own small window, ordered just above the window it
 /// belongs to, so anything covering that window covers the badge too. Both
 /// kinds can be turned off in Settings.
+///
+/// The app makes one, which lives as long as the app, so it never removes its
+/// observers and has no deinit.
 final class PinBadgeController {
 
     static let pinnedKey = "badgePinnedWindows"
@@ -52,8 +55,6 @@ final class PinBadgeController {
     /// follows its window on a timer of its own, and its badge follows it.
     private var pinnedTimer: Timer?
 
-    private var observers: [(NotificationCenter, NSObjectProtocol)] = []
-    private var mouseMonitor: Any?
     /// Accessibility notifications from the active app.
     private var appObserver: AXObserver?
     private var observedPID: pid_t = 0
@@ -79,13 +80,11 @@ final class PinBadgeController {
             observe(workspace, name)
         }
         observe(.default, NSApplication.didChangeScreenParametersNotification)
-        observers.append((workspace, workspace.addObserver(
-            forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
-        ) { [weak self] note in
+        workspace.observeOnMain(NSWorkspace.didTerminateApplicationNotification) { [weak self] note in
             if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
                 self?.slots.forget(pid: app.processIdentifier)
             }
-        }))
+        }
         // The two switches and the distances in Settings.
         observe(.default, UserDefaults.didChangeNotification)
         slots.offsets = BadgeOffsets.all()
@@ -93,25 +92,15 @@ final class PinBadgeController {
         // Mouse buttons need no permission to watch, unlike keys. Clicks on
         // WindowPin's own windows are not reported here; a click on a badge
         // changes the pinned set, which refreshes by itself.
-        mouseMonitor = NSEvent.addGlobalMonitorForEvents(
+        _ = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .leftMouseUp]
         ) { [weak self] _ in self?.refresh(following: false) }
 
         refresh()
     }
 
-    deinit {
-        followTimer?.invalidate()
-        pinnedTimer?.invalidate()
-        observers.forEach { $0.0.removeObserver($0.1) }
-        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
-        stopObservingApp()
-    }
-
     private func observe(_ center: NotificationCenter, _ name: Notification.Name) {
-        observers.append((center, center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-            self?.refresh()
-        }))
+        center.observeOnMain(name) { [weak self] _ in self?.refresh() }
     }
 
     // MARK: - Update
@@ -136,7 +125,7 @@ final class PinBadgeController {
 
         let anyPinned = Self.showsPinned && !tracker.pinnedWindows.isEmpty
         if anyPinned, pinnedTimer == nil {
-            let t = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in self?.update(restack: false) }
+            let t = Timer.onMainUnscheduled(every: 0.5, repeats: true) { [weak self] in self?.update(restack: false) }
             t.tolerance = 0.1
             RunLoop.main.add(t, forMode: .common)
             pinnedTimer = t
@@ -149,7 +138,7 @@ final class PinBadgeController {
     private func startFollowingTimer() {
         guard followTimer == nil else { return }
         // Common modes, so it keeps up during a drag.
-        let t = Timer(timeInterval: BadgeSchedule.tickInterval, repeats: true) { [weak self] _ in self?.follow() }
+        let t = Timer.onMainUnscheduled(every: BadgeSchedule.tickInterval, repeats: true) { [weak self] in self?.follow() }
         RunLoop.main.add(t, forMode: .common)
         followTimer = t
     }
@@ -374,11 +363,13 @@ final class PinBadgeController {
     }
 }
 
-/// Accessibility notifications arrive at a C function, on the main run loop.
-private func badgeAXCallback(_ observer: AXObserver, _ element: AXUIElement,
-                             _ notification: CFString, _ context: UnsafeMutableRawPointer?) {
+/// Accessibility notifications arrive at a C function, on the main run loop
+/// (its source is added to the main run loop where the observer is made).
+nonisolated private func badgeAXCallback(_ observer: AXObserver, _ element: AXUIElement,
+                                         _ notification: CFString, _ context: UnsafeMutableRawPointer?) {
     guard let context else { return }
-    Unmanaged<PinBadgeController>.fromOpaque(context).takeUnretainedValue().refresh()
+    let controller = Unmanaged<PinBadgeController>.fromOpaque(context)
+    MainActor.assumeIsolated { controller.takeUnretainedValue().refresh() }
 }
 
 // MARK: - Badge window

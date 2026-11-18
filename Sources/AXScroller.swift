@@ -17,7 +17,12 @@ import ApplicationServices
 ///
 /// It reports what it finds and then makes ONE attempt to move the scroll
 /// position, so the answer is visible on screen as well as in the log.
-enum AXScroller {
+///
+/// The Accessibility calls block, so they run on a serial queue of their own,
+/// which also owns the caches below. Not an actor: an actor would block a
+/// thread of Swift's shared pool for each call, and the scroll coalescing
+/// relies on the queue running work in the order it was sent.
+nonisolated enum AXScroller {
 
     /// Attribute reads are capped. A beachballed target must not take
     /// WindowPin's main thread with it, which is why every call here runs on a
@@ -133,8 +138,11 @@ enum AXScroller {
     /// test and costs nothing.
     private struct Area { let frame: CGRect; let bar: AXUIElement }
     private struct Resolved { let areas: [Area]; let at: Date }
-    private static var cache: [CGWindowID: Resolved] = [:]
-    private static var lastLoggedShape: [CGWindowID: String] = [:]
+    // Touched only on `queue`; `onQueue()` checks it.
+    nonisolated(unsafe) private static var cache: [CGWindowID: Resolved] = [:]
+    nonisolated(unsafe) private static var lastLoggedShape: [CGWindowID: String] = [:]
+
+    private static func onQueue() { dispatchPrecondition(condition: .onQueue(queue)) }
 
     /// Scroll a pinned window by a wheel delta, without touching focus.
     /// - Parameter at: the pointer, in global top-left coordinates, matching the
@@ -154,6 +162,7 @@ enum AXScroller {
         // scrolling after the fingers had lifted. Deltas that arrive while
         // the queue is busy are added up and applied together, once.
         queue.async {
+            onQueue()
             let folded = ScrollMath.accumulate(queued: pending[windowID], pid: pid,
                                                deltaY: deltaY, point: point)
             pending[windowID] = folded.pending
@@ -162,9 +171,10 @@ enum AXScroller {
     }
 
     /// Scrolling not yet applied, per window. Touched only on `queue`.
-    private static var pending: [CGWindowID: ScrollMath.Pending] = [:]
+    nonisolated(unsafe) private static var pending: [CGWindowID: ScrollMath.Pending] = [:]
 
     private static func drain(windowID: CGWindowID) {
+        onQueue()
         guard let next = pending.removeValue(forKey: windowID),
               let bar = barUnder(next.point, pid: next.pid, windowID: windowID) else { return }
         guard let current = copyDouble(bar, kAXValueAttribute) else {
@@ -193,6 +203,7 @@ enum AXScroller {
     }
 
     private static func resolveAreas(pid: pid_t, windowID: CGWindowID) -> [Area]? {
+        onQueue()
         if let hit = cache[windowID], ScrollMath.cacheIsFresh(age: Date().timeIntervalSince(hit.at)) {
             return hit.areas
         }

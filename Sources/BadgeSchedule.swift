@@ -9,7 +9,7 @@ import Foundation
 /// The controller owns one timer that fires every `tickInterval` while this
 /// says it should run. Nothing runs by itself: with no events, `isFollowing`
 /// stays false and no refresh is ever due.
-struct BadgeSchedule {
+nonisolated struct BadgeSchedule {
 
     /// Refreshes closer together than this are one burst.
     static let burstGap: TimeInterval = 0.05
@@ -104,7 +104,7 @@ struct BadgeSchedule {
 
 /// How often an app that refuses Accessibility notifications is asked again.
 /// Asking a hung app waits on it, on the main thread.
-struct RefusalBackoff {
+nonisolated struct RefusalBackoff {
 
     /// A second the first time, as an app just launched often answers a
     /// moment later; five after that.
@@ -138,7 +138,7 @@ struct RefusalBackoff {
     }
 }
 
-enum BadgePlacement {
+nonisolated enum BadgePlacement {
 
     /// The floating pin shows the window scaled to its own size, so a spot
     /// found on the window scales with it, and stays clear of both edges.

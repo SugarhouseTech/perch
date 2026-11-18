@@ -49,6 +49,25 @@ at login, the menu bar icon).
 - UI and system integration get a handful of manual checks, not the bulk of
   the suite.
 
+## Threads
+
+The package builds in Swift 6 language mode, with the features Swift 7 turns
+on (see `Package.swift`), so the compiler checks which thread owns what.
+
+- The app target runs on the main actor by default. The pure logic above is
+  marked `nonisolated`, which is what lets tests and other queues call it.
+  A new decision type gets `nonisolated` too.
+- Only three things run off the main thread: the hotkey tap (`HotkeyTap`,
+  state behind a lock), `AXScroller` (its own serial queue, because
+  Accessibility calls block), and ScreenCaptureKit's frame callbacks in
+  `WindowOverlay`. None of them touches main thread state directly.
+- Observe notifications and run timers with `observeOnMain` and `Timer.onMain`
+  (`Sources/MainThread.swift`), not the closure APIs.
+- A main actor class's deinit can run on any thread, so cleanup goes in an
+  explicit teardown (`WindowOverlay.hideOverlay()`), not in deinit.
+- `nonisolated(unsafe)` and `@unchecked Sendable` each need a comment saying
+  what makes them safe.
+
 ## Quiet by default
 
 WindowPin runs all day. Nothing may poll while nothing is happening, and every

@@ -65,7 +65,6 @@ final class BadgeOnlyWhenPinnedTests: XCTestCase {
 
     override func tearDown() {
         defaults.removePersistentDomain(forName: suite)
-        BadgeOffsets.lastAutomatic = [:]
     }
 
     func testAnAppCanShowItsButtonOnlyWhenPinned() {
@@ -85,12 +84,10 @@ final class BadgeOnlyWhenPinnedTests: XCTestCase {
     }
 
     func testAnAddedAppStartsWhereTheButtonAlreadyIs() {
-        XCTAssertEqual(BadgeOffsets.starting(for: "a"), BadgeOffsets.range.lowerBound)
-        BadgeOffsets.lastAutomatic["a"] = 143.6
-        XCTAssertEqual(BadgeOffsets.starting(for: "a"), 144)
-        BadgeOffsets.lastAutomatic["a"] = 9_000
-        XCTAssertEqual(BadgeOffsets.starting(for: "a"), BadgeOffsets.range.upperBound)
-        XCTAssertEqual(BadgeOffsets.starting(for: "com.hnc.Discord"), BadgeOffsets.builtIn["com.hnc.Discord"])
+        XCTAssertEqual(BadgeOffsets.starting(for: "a", automatic: nil), BadgeOffsets.range.lowerBound)
+        XCTAssertEqual(BadgeOffsets.starting(for: "a", automatic: 143.6), 144)
+        XCTAssertEqual(BadgeOffsets.starting(for: "a", automatic: 9_000), BadgeOffsets.range.upperBound)
+        XCTAssertEqual(BadgeOffsets.starting(for: "com.hnc.Discord", automatic: 10), BadgeOffsets.builtIn["com.hnc.Discord"])
     }
 }
 
