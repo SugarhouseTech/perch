@@ -3,7 +3,7 @@ import Foundation
 
 /// The key and modifiers the global shortcut is bound to, and the test a key
 /// press is put through.
-struct HotkeyBinding: Equatable {
+nonisolated struct HotkeyBinding: Equatable, Sendable {
     var keyCode: Int64
     var modifiers: CGEventFlags
 
@@ -43,13 +43,16 @@ struct HotkeyBinding: Equatable {
 /// Accessibility calls that can block for up to a second each on an app that
 /// has hung. With a thread of its own the callback only compares a few
 /// integers, so nothing WindowPin does can hold up typing.
-final class HotkeyTap {
+///
+/// Its state is shared with that thread and guarded by `lock`, which the
+/// compiler cannot check; hence `@unchecked Sendable`.
+nonisolated final class HotkeyTap: @unchecked Sendable {
 
     static let shared = HotkeyTap()
 
     /// Run on the main thread when the shortcut is pressed. Set once, before
-    /// `install()`.
-    var action: (() -> Void)?
+    /// `install()`, and only read on the main thread.
+    var action: (@MainActor () -> Void)?
 
     private let lock = NSLock()
     // Everything below is guarded by `lock`: the tap's thread reads it.
@@ -99,13 +102,16 @@ final class HotkeyTap {
             userInfo: nil
         ) else { return false }
 
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        // Handed to the tap's thread, which is their only user until
+        // `uninstall()` stops it.
+        nonisolated(unsafe) let threadTap = tap
+        nonisolated(unsafe) let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         let ready = DispatchSemaphore(value: 0)
-        var threadLoop: CFRunLoop?
-        let thread = Thread {
-            threadLoop = CFRunLoopGetCurrent()
-            CFRunLoopAddSource(threadLoop, source, .commonModes)
-            CGEvent.tapEnable(tap: tap, enable: true)
+        let thread = Thread { [self] in
+            let loop = CFRunLoopGetCurrent()
+            lock.withLock { runLoop = loop }
+            CFRunLoopAddSource(loop, source, .commonModes)
+            CGEvent.tapEnable(tap: threadTap, enable: true)
             ready.signal()
             CFRunLoopRun()
         }
@@ -115,10 +121,7 @@ final class HotkeyTap {
         // Wait for the run loop to exist, so `uninstall()` always has one to stop.
         ready.wait()
 
-        lock.withLock {
-            port = tap
-            runLoop = threadLoop
-        }
+        lock.withLock { port = tap }
         return true
     }
 
@@ -177,7 +180,7 @@ final class HotkeyTap {
 }
 
 /// The tap's callback must be a C function, so it only hands over.
-private func hotkeyTapCallback(
+nonisolated private func hotkeyTapCallback(
     proxy: CGEventTapProxy,
     type: CGEventType,
     event: CGEvent,

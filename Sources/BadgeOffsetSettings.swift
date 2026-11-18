@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The apps whose pin button sits at a distance of their own: see
 /// `BadgeOffsets`. A row per app with a slider, and a menu of the running
@@ -94,7 +95,7 @@ struct BadgeOffsetSettings: View {
             ForEach(candidates, id: \.processIdentifier) { running in
                 Button {
                     guard let id = running.bundleIdentifier else { return }
-                    BadgeOffsets.set(BadgeOffsets.starting(for: id), for: id)
+                    BadgeOffsets.set(BadgeOffsets.starting(for: id, automatic: BadgeOffsets.lastAutomatic[id]), for: id)
                     offsets = BadgeOffsets.all()
                 } label: {
                     Label {

@@ -13,7 +13,7 @@ import Foundation
 /// A distance in points rather than a share of the window's width, because
 /// title-bar buttons are a fixed size and stay put against the right edge as a
 /// window is resized.
-enum BadgeOffsets {
+nonisolated enum BadgeOffsets {
 
     /// The user's own distances, by bundle identifier.
     static let key = "badgeOffsets"
@@ -26,8 +26,7 @@ enum BadgeOffsets {
 
     /// Where the automatic placement last put the button in each app, so an
     /// app added in Settings starts from there rather than from the corner.
-    /// Main thread only.
-    static var lastAutomatic: [String: Double] = [:]
+    @MainActor static var lastAutomatic: [String: Double] = [:]
 
     /// From the right edge, as the automatic placement would have it with
     /// nothing in the way, to far enough left to clear any toolbar seen so far.
@@ -79,9 +78,9 @@ enum BadgeOffsets {
     }
 
     /// The distance an app added in Settings starts at: its built-in one, or
-    /// where the button already is.
-    static func starting(for bundleID: String) -> Double {
-        let value = builtIn[bundleID] ?? lastAutomatic[bundleID] ?? range.lowerBound
+    /// `automatic`, where the button already is (see `lastAutomatic`).
+    static func starting(for bundleID: String, automatic: Double?) -> Double {
+        let value = builtIn[bundleID] ?? automatic ?? range.lowerBound
         return min(max(value.rounded(), range.lowerBound), range.upperBound)
     }
 

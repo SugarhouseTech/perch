@@ -14,7 +14,7 @@ import Foundation
 /// - Screen points: AppKit's global space, from the bottom-left of the primary
 ///   display, running up. The window list reports frames from the top-left
 ///   instead, running down; `appKitFrame` converts.
-enum OverlayGeometry {
+nonisolated enum OverlayGeometry {
 
     // MARK: - What is shown
 

@@ -1,7 +1,7 @@
 import AppKit
 import ApplicationServices
 
-struct ForeignWindow: Hashable {
+nonisolated struct ForeignWindow: Hashable {
     let windowID: UInt32
     let ownerPID: pid_t
     let ownerName: String

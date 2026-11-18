@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Combine
 import SwiftUI
 
 /// Keeps a TCC permission's state current in a Settings window, so granting it in
@@ -122,8 +123,12 @@ public final class JorvikPermissionWatcher: NSObject, ObservableObject {
     /// in the common modes so tracking a menu cannot stall it.
     private func startPolling() {
         guard poll == nil else { return }
-        let timer = Timer(timeInterval: Self.pollSeconds, repeats: true) { [weak self] _ in
-            self?.reread()
+        let timer = Timer(timeInterval: Self.pollSeconds, repeats: true) { [weak self] timer in
+            // A watcher let go while polling stops its own timer. Its deinit
+            // cannot: it may run on any thread, and a timer is stopped on the
+            // thread it runs on.
+            guard let self else { timer.invalidate(); return }
+            MainActor.assumeIsolated { self.reread() }
         }
         RunLoop.main.add(timer, forMode: .common)
         poll = timer
@@ -147,7 +152,6 @@ public final class JorvikPermissionWatcher: NSObject, ObservableObject {
     }
 
     deinit {
-        poll?.invalidate()
         DistributedNotificationCenter.default().removeObserver(self)
         NotificationCenter.default.removeObserver(self)
     }
@@ -208,7 +212,9 @@ public final class JorvikPermissionWatcher: NSObject, ObservableObject {
     /// Show the system's Accessibility prompt, which also adds the app to the list.
     @discardableResult
     public static func promptForAccessibility() -> Bool {
-        let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
+        // The value of `kAXTrustedCheckOptionPrompt`, which is imported as a
+        // mutable global that Swift 6 will not read.
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }
 
@@ -256,7 +262,9 @@ private struct JorvikWindowVisibilityObserver: NSViewRepresentable {
 
     private final class ObserverView: NSView {
         let onChange: (Bool) -> Void
-        private var token: NSObjectProtocol?
+        // Read by deinit, which may run on any thread. Removing an observer is
+        // safe from any thread.
+        nonisolated(unsafe) private var token: (any NSObjectProtocol)?
 
         init(onChange: @escaping (Bool) -> Void) {
             self.onChange = onChange
@@ -270,9 +278,7 @@ private struct JorvikWindowVisibilityObserver: NSViewRepresentable {
             if let token { NotificationCenter.default.removeObserver(token) }
             token = nil
             guard let window else { onChange(false); return }
-            token = NotificationCenter.default.addObserver(
-                forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
-            ) { [weak self] _ in self?.report() }
+            token = NotificationCenter.default.observeOnMain(NSWindow.didChangeOcclusionStateNotification, object: window) { [weak self] _ in self?.report() }
             report()
         }
 

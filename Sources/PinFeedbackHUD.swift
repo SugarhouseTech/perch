@@ -9,7 +9,7 @@ import AppKit
 enum PinFeedbackHUD {
 
     private static var panel: NSPanel?
-    private static var hideWork: DispatchWorkItem?
+    private static var hideTask: Task<Void, Never>?
     /// Counts the badges shown, so a fade that is still finishing can tell it
     /// has been overtaken.
     private static var shown = 0
@@ -36,22 +36,24 @@ enum PinFeedbackHUD {
         }
         p.orderFrontRegardless()
 
-        hideWork?.cancel()
+        hideTask?.cancel()
         shown += 1
         let this = shown
-        let work = DispatchWorkItem {
+        hideTask = Task {
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.3
                 p.animator().alphaValue = 0
             }, completionHandler: {
-                // Cancelling the work item does not stop a fade already under
-                // way. Pinning and unpinning about a second apart put the new
-                // badge up just in time for the old fade to take it down.
-                if this == shown { p.orderOut(nil) }
+                // Cancelling the task does not stop a fade already under way.
+                // Pinning and unpinning about a second apart put the new badge
+                // up just in time for the old fade to take it down.
+                MainActor.assumeIsolated {
+                    if this == shown { p.orderOut(nil) }
+                }
             })
         }
-        hideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
     }
 
     private static func makePanel() -> NSPanel {

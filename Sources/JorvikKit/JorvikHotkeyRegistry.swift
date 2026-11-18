@@ -9,7 +9,7 @@ import AppKit
 /// is written to the publishing app's UserDefaults under
 /// `JorvikHotkeyRegistry.userDefaultsKey` as a JSON-encoded array;
 /// readers pull it via `CFPreferencesCopyAppValue` against the bundle ID.
-struct JorvikHotkey: Codable, Hashable {
+nonisolated struct JorvikHotkey: Codable, Hashable {
     let actionTitle: String
     let keyCode: UInt16
     let modifiers: UInt        // NSEvent.ModifierFlags raw

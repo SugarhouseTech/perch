@@ -3,7 +3,7 @@ import AppKit
 /// The decisions EventForwarder makes about an event, as plain functions over
 /// event types, flags and numbers. They have no NSEvent or CGEvent in their
 /// signatures so a test can cover every case without posting anything.
-enum EventMapping {
+nonisolated enum EventMapping {
 
     /// Round a scroll delta to whole steps without losing sub-step ticks: a
     /// slow trackpad drag reports fractions of a line, and rounding those to

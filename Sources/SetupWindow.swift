@@ -124,7 +124,7 @@ private struct SetupView: View {
                     }
                 },
                 note: askedScreenRecording && !screenRecording.isGranted
-                    ? ("Already switched it on? macOS applies it when WindowPin restarts.", "Restart WindowPin", SetupWindow.relaunch)
+                    ? ("Already switched it on? macOS applies it when WindowPin restarts.", "Restart WindowPin", { SetupWindow.relaunch() })
                     : nil
             )
             // The window is kept, not released, when closed, so without this

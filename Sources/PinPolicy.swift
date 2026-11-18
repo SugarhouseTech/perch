@@ -5,20 +5,20 @@ import Foundation
 /// nothing here touches a window, a timer or the clock.
 
 /// A change to a pin's layer.
-enum PinLayerChange: Equatable {
+nonisolated enum PinLayerChange: Equatable {
     case sendBehind
     case bringToFront
 }
 
 /// What a pin does when another app becomes active.
-enum ActivationAction: Equatable {
+nonisolated enum ActivationAction: Equatable {
     /// A cropped pin's own window may or may not be the one in use, so the
     /// activated app alone does not settle it. See `PinPolicy.layeringChange`.
     case decideByLayering
     case change(PinLayerChange)
 }
 
-enum PinPolicy {
+nonisolated enum PinPolicy {
 
     // MARK: - Pruning closed windows
 

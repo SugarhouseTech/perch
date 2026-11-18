@@ -9,7 +9,7 @@ import ApplicationServices
 /// field. So before placing it, ask the app what lies under each spot along the
 /// title bar, working leftwards from the corner, and take the first spot clear
 /// of anything clickable.
-enum TitleBarSlot {
+nonisolated enum TitleBarSlot {
 
     /// What lies under one point of the title bar.
     enum Probe {
@@ -91,7 +91,7 @@ enum TitleBarSlot {
 /// of every control any of the answers named.
 final class TitleBarSlotFinder {
 
-    struct Entry {
+    nonisolated struct Entry {
         /// The size measured, and the answer for it.
         let size: CGSize
         let spot: BadgeSpot
@@ -155,21 +155,21 @@ final class TitleBarSlotFinder {
 
     /// How many times a provisional answer is asked again before it is kept,
     /// about two seconds in all.
-    static let maxTries = 4
+    nonisolated static let maxTries = 4
     /// The same for an app still filling in its tree when that runs out,
     /// about seven seconds in all.
-    static let maxTriesWhileGrowing = 6
+    nonisolated static let maxTriesWhileGrowing = 6
     /// Remember this many windows; the least recently used is forgotten.
-    static let capacity = 32
+    nonisolated static let capacity = 32
     /// A resized window is measured once its size has held this long, so an
     /// animated resize (a window manager, zoom, tiling) is measured once at
     /// the end rather than at every step.
-    static let settle: TimeInterval = 0.2
+    nonisolated static let settle: TimeInterval = 0.2
     /// A window still changing size after this long is left until it stops,
     /// rather than kept under watch.
-    static let driftWatch: TimeInterval = 3
+    nonisolated static let driftWatch: TimeInterval = 3
     /// The most time one measurement may spend asking an app, on the main thread.
-    static let budget: TimeInterval = 0.25
+    nonisolated static let budget: TimeInterval = 0.25
 
     private var cache: [UInt32: Entry] = [:]
 
@@ -221,7 +221,7 @@ final class TitleBarSlotFinder {
     ]
 
     /// Wait this long after a provisional answer before asking again.
-    static func recheckDelay(afterTries tries: Int) -> TimeInterval {
+    nonisolated static func recheckDelay(afterTries tries: Int) -> TimeInterval {
         0.3 * pow(2, Double(max(tries - 1, 0)))
     }
 
@@ -230,7 +230,7 @@ final class TitleBarSlotFinder {
     ///
     /// While a mouse button is held, a window being resized keeps its last
     /// answer instead of being asked on every step of the drag.
-    static func shouldMeasure(_ entry: Entry?, now: TimeInterval, dragging: Bool) -> Bool {
+    nonisolated static func shouldMeasure(_ entry: Entry?, now: TimeInterval, dragging: Bool) -> Bool {
         guard let entry else { return true }
         if dragging { return false }
         if entry.seenSize != entry.size { return now - entry.seenSince >= settle }
@@ -238,7 +238,7 @@ final class TitleBarSlotFinder {
         return now - entry.measuredAt >= recheckDelay(afterTries: entry.tries)
     }
 
-    static func triesAllowed(_ entry: Entry) -> Int {
+    nonisolated static func triesAllowed(_ entry: Entry) -> Int {
         entry.grew ? maxTriesWhileGrowing : maxTries
     }
 
@@ -254,7 +254,7 @@ final class TitleBarSlotFinder {
     ///   - failed: the app did not answer every question.
     ///   - earlier: the points earlier answers at this size named, or nil if
     ///     this is the first try at it.
-    static func merge(found: Set<Int>, failed: Bool, earlier: Set<Int>?)
+    nonisolated static func merge(found: Set<Int>, failed: Bool, earlier: Set<Int>?)
         -> (sure: Bool, known: Set<Int>, grew: Bool) {
         guard let earlier else { return (!failed && !found.isEmpty, found, false) }
         return (false, earlier.union(found), !found.isSubset(of: earlier))
@@ -262,7 +262,7 @@ final class TitleBarSlotFinder {
 
     /// Whether the answer will change by itself soon, so it is worth checking
     /// again shortly even if nothing else happens.
-    static func wantsRecheck(_ entry: Entry, now: TimeInterval) -> Bool {
+    nonisolated static func wantsRecheck(_ entry: Entry, now: TimeInterval) -> Bool {
         if let drift = entry.driftSince { return now - drift < driftWatch }
         return !entry.sure && entry.tries < triesAllowed(entry)
     }
@@ -458,7 +458,7 @@ final class TitleBarSlotFinder {
 }
 
 /// Where a badge sits on its window.
-struct BadgeSpot: Equatable {
+nonisolated struct BadgeSpot: Equatable {
     /// Distance from the window's right edge to the badge's right edge.
     var right: CGFloat
     /// Distance from the window's top edge to the badge's top edge.

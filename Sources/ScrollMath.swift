@@ -3,7 +3,7 @@ import Foundation
 
 /// The decisions AXScroller makes, over plain numbers and rectangles instead of
 /// AXUIElements, so they can be tested without a target app.
-enum ScrollMath {
+nonisolated enum ScrollMath {
 
     /// A wheel reports lines, about one per notch, where a trackpad reports
     /// points, so a wheel crawled at a tenth of the speed. Ten points is the

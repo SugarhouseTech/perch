@@ -13,7 +13,7 @@ import Foundation
 /// late answers of ScreenCaptureKit and of the pin's own timers, and comes
 /// back as `Effect`s for `WindowOverlay` to carry out. Nothing here touches a
 /// stream or a timer, so the rules can be tested over any order of events.
-struct StreamLifecycle {
+nonisolated struct StreamLifecycle {
 
     /// Retries of a failed stream or of a window lookup, between fresh starts.
     static let maxRestarts = 5

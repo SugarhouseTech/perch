@@ -90,7 +90,7 @@ struct JorvikShortcutRecorder: View {
     @State private var isRecording = false
     @State private var localMonitor: Any?
     /// Ends a recording when the app stops being the active one. See `startRecording`.
-    @State private var resignObserver: NSObjectProtocol?
+    @State private var resignObserver: (any NSObjectProtocol)?
     // There is no global key monitor, deliberately.
     //
     // Recording used to install one alongside the local monitor, to catch
@@ -206,9 +206,7 @@ struct JorvikShortcutRecorder: View {
         // recording open, and with it whatever the owner had switched off for
         // its duration: the global shortcut stayed dead until they came back
         // and cancelled. Leaving the app cancels instead.
-        resignObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
-        ) { _ in stopRecording() }
+        resignObserver = NotificationCenter.default.observeOnMain(NSApplication.didResignActiveNotification) { _ in stopRecording() }
     }
 
     private func stopRecording() {

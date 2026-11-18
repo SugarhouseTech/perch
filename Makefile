@@ -6,7 +6,7 @@
 #   make install   build it and copy it to /Applications
 #   make clean     remove the built app
 #
-# Needs nothing beyond the Xcode command line tools.
+# Needs nothing beyond the Xcode 26 command line tools (Swift 6.2) or later.
 
 BUNDLE_NAME      := WindowPin
 PRODUCT_NAME     := WindowPin.app

@@ -18,8 +18,8 @@ macOS 14 (Sonoma) or later.
 
 ## Install
 
-The fork has no packaged releases yet. Build it from source with the Xcode
-command line tools:
+The fork has no packaged releases yet. Build it from source with the Xcode 26
+command line tools or later (Swift 6.2):
 
 ```sh
 git clone https://github.com/SugarhouseTech/perch.git
