@@ -83,6 +83,12 @@ Perch runs all day. Nothing may poll while nothing is happening, and every
 retry, recheck or restart needs a limit. When adding one, add a test that
 bounds how often it can fire.
 
+## Icons
+
+The robin icons and how to change or regenerate them are in
+`docs/branding/README.md`; the `icon-images` skill covers a round of image
+generation.
+
 ## Style
 
 - Comments say why, in plain sentences, for a reader without this context.
