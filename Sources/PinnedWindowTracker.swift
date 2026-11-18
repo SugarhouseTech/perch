@@ -80,7 +80,7 @@ final class PinnedWindowTracker {
         overlay.onCropChange = { [weak self] in self?.cropsChanged() }
         overlay.onCaptureDenied = { [weak self] in
             wplog("pin: capture refused, unpinning wid=\(pw.windowID)")
-            self?.unpin(windowID: pw.windowID)
+            self?.unpin(windowID: pw.windowID, bringForward: false)
             self?.onCaptureDenied?(pw)
         }
         overlays[window.windowID] = overlay
@@ -112,8 +112,15 @@ final class PinnedWindowTracker {
         return false
     }
 
-    func unpin(windowID: UInt32) {
+    /// - Parameter bringForward: bring the window to the front and give it
+    ///   the keyboard. True when the user unpins: they are done with the
+    ///   window floating, not with the window, and usually want to use it
+    ///   next. Without this, unpinning while in another app made the window
+    ///   vanish behind that app. False when the app unpins by itself (capture
+    ///   refused), which must not move focus.
+    func unpin(windowID: UInt32, bringForward: Bool) {
         guard let pw = pinnedWindows.first(where: { $0.windowID == windowID }) else { return }
+        if bringForward { overlays[windowID]?.activateRealWindow() }
         overlays[windowID]?.hideOverlay()
         overlays[windowID] = nil
         pinnedWindows.remove(pw)
@@ -143,7 +150,7 @@ final class PinnedWindowTracker {
 
     func toggle(window: ForeignWindow) {
         if isPinned(windowID: window.windowID) {
-            unpin(windowID: window.windowID)
+            unpin(windowID: window.windowID, bringForward: true)
         } else {
             pin(window: window)
         }
