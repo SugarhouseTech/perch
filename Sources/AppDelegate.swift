@@ -176,11 +176,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func updateIcon() {
         let hasPinned = !tracker.pinnedWindows.isEmpty
-        let symbolName = hasPinned ? "pin.fill" : "pin"
-        statusItem?.button?.image = JorvikMenuBarPill.icon(
-            symbolName: symbolName,
-            accessibilityDescription: "WindowPin"
+        let image = JorvikMenuBarPill.icon(
+            drawGlyph: { @Sendable rect, color in
+                if hasPinned { MenuBarGlyph.pinned(rect, color) } else { MenuBarGlyph.idle(rect, color) }
+            },
+            glyphSize: MenuBarGlyph.size
         )
+        image.accessibilityDescription = "WindowPin"
+        statusItem?.button?.image = image
     }
 
     // MARK: - Dynamic menu (NSMenuDelegate)
