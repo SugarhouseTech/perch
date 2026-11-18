@@ -42,7 +42,8 @@ Any of these pins the window in use, and does the same again to unpin it:
 - Click the pin icon in the menu bar and choose the window at the top.
 
 A badge flashes over the window to confirm. Closed windows are unpinned on
-their own, and **Unpin All** in the menu clears every pin.
+their own. The menu lists every pin, the front app's first: choose one to
+unpin it, or **Unpin All** to clear them all.
 
 A pin floats over other apps. When you switch to the pinned window's app, the
 pin drops behind the real window so you work with the app itself, and comes
@@ -157,7 +158,7 @@ Settings are saved as you change them.
 WindowPin needs two permissions, both in System Settings → Privacy &
 Security. The setup window asks for them on first run, comes back at launch
 while either is missing, and can be opened from the menu with **Finish
-Setting Up…**.
+Setting Up…**. While one is missing, the menu bar icon has an orange dot.
 
 - **Accessibility**: for the keyboard shortcut, the pin buttons, scrolling
   pins and bringing windows to the front.

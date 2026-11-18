@@ -213,3 +213,28 @@ private let failed: Bool? = nil
         }
     }
 }
+
+@Suite struct MenuOrderTests {
+    private func pin(_ id: UInt32, pid: Int32, _ owner: String, _ title: String = "") -> PinnedWindow {
+        PinnedWindow(windowID: id, ownerPID: pid, ownerName: owner, windowTitle: title)
+    }
+
+    @Test func frontAppFirstThenByName() {
+        let pins = [pin(1, pid: 10, "Safari", "Docs"), pin(2, pid: 20, "Terminal", "build"),
+                    pin(3, pid: 30, "Notes"), pin(4, pid: 20, "Terminal", "logs")]
+        let order = PinPolicy.menuOrder(pins, frontPID: 20).map(\.windowID)
+        #expect(order == [2, 4, 3, 1])
+    }
+
+    @Test func noFrontAppIsJustByName() {
+        let pins = [pin(1, pid: 10, "safari"), pin(2, pid: 20, "Notes"), pin(3, pid: 30, "App 10"), pin(4, pid: 40, "App 9")]
+        // Case-insensitive, with numbers in number order.
+        #expect(PinPolicy.menuOrder(pins, frontPID: nil).map(\.windowID) == [4, 3, 2, 1])
+    }
+
+    @Test func sameNameKeepsAStableOrder() {
+        let pins = [pin(7, pid: 10, "Notes"), pin(5, pid: 10, "Notes")]
+        #expect(PinPolicy.menuOrder(pins, frontPID: nil).map(\.windowID) == [5, 7])
+        #expect(PinPolicy.menuOrder(pins.reversed(), frontPID: nil).map(\.windowID) == [5, 7])
+    }
+}
