@@ -64,6 +64,23 @@ The art was made by OpenAI GPT-5.4 Image 2 (through OpenRouter) from
 > comfortable margins, crisp edges, Apple-quality, and readable at small
 > sizes. No text.
 
+## Making more
+
+`scripts/generate-images.py` sends a brief, with optional reference images,
+to several image models through OpenRouter at once and saves what comes back:
+
+```sh
+export OPENROUTER_API_KEY=...
+scripts/generate-images.py --prompt-file brief.txt \
+    --ref docs/branding/reference/menubar-robin.png --out .build/generated-images/round4
+scripts/generate-images.py --list    # the image models available now
+```
+
+It uses only the Python standard library and prints each model's cost. A
+generated image is a starting point: a glyph is traced by hand into
+`MenuBarGlyph.Shape`, and app icon art goes through `generate_icon.swift`.
+The `icon-images` skill in `.claude/skills/` walks an agent through a round.
+
 ## How the design was chosen
 
 Three rounds, November 2026, each sent to Google Gemini Nano Banana 2.1,

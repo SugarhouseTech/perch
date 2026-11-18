@@ -23,5 +23,7 @@ DerivedData/
 # Temp
 *.swp
 *.swo
-.claude/
+# Local agent state, except the project's shared skills.
+.claude/*
+!.claude/skills/
 local.mk
