@@ -417,6 +417,12 @@ private final class BadgePanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
+    /// A button taken away while hovered takes its label with it.
+    override func orderOut(_ sender: Any?) {
+        (contentView as? BadgeView)?.hideLabel()
+        super.orderOut(sender)
+    }
+
     /// The window this badge was last put above.
     private var orderedAbove = 0
 
@@ -449,16 +455,44 @@ private final class BadgeView: NSView {
         addTrackingArea(NSTrackingArea(rect: .zero,
                                        options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                                        owner: self))
-        toolTip = pinned ? "Unperch this window" : "Perch this window on top"
     }
+
+    /// What the button does, shown beside it after a short hover. Not the
+    /// view's `toolTip`: macOS shows those only for the active app, and
+    /// Perch never is.
+    private var label: String { pinned ? "Unperch this window" : "Perch this window on top" }
+    private var pendingLabel: DispatchWorkItem?
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
     // The click must work while another app is active, without activating Perch.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) { action() }
-    override func mouseEntered(with event: NSEvent) { hovering = true }
-    override func mouseExited(with event: NSEvent) { hovering = false }
+    override func mouseDown(with event: NSEvent) {
+        hideLabel()
+        action()
+    }
+    override func mouseEntered(with event: NSEvent) {
+        hovering = true
+        let show = DispatchWorkItem { [weak self] in
+            guard let self, self.hovering, let window = self.window, window.isVisible else { return }
+            HoverLabel.shared.show(self.label, below: window.frame)
+        }
+        pendingLabel = show
+        DispatchQueue.main.asyncAfter(deadline: .now() + HoverLabel.delay, execute: show)
+    }
+    override func mouseExited(with event: NSEvent) {
+        hovering = false
+        hideLabel()
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { hideLabel() }
+    }
+    func hideLabel() {
+        pendingLabel?.cancel()
+        pendingLabel = nil
+        HoverLabel.shared.hide()
+    }
 
     /// A perched window's button must be obvious at a glance, as the old
     /// solid orange one was: a ring of the robin's orange round a dark centre,
@@ -482,4 +516,62 @@ private final class BadgeView: NSView {
         MenuBarGlyph.draw(in: bounds.insetBy(dx: pinned ? 4.5 : 3.5, dy: pinned ? 4.5 : 3.5),
                           color: .white, pinned: pinned, warning: false)
     }
+}
+
+// MARK: - Hover label
+
+/// A small label under a button, saying what it does: the tooltip macOS will
+/// not show for an app that is not active. One is shared by every button, as
+/// only one can be hovered at a time.
+private final class HoverLabel {
+    static let shared = HoverLabel()
+    /// About as long as macOS waits before a tooltip.
+    static let delay: TimeInterval = 0.6
+
+    private let panel: NSPanel
+    private let text = NSTextField(labelWithString: "")
+
+    private init() {
+        panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered, defer: true)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.level = .popUpMenu
+        panel.ignoresMouseEvents = true
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.collectionBehavior = [.fullScreenAuxiliary, .transient, .ignoresCycle]
+        let box = NSVisualEffectView()
+        box.material = .toolTip
+        box.state = .active
+        box.wantsLayer = true
+        box.layer?.cornerRadius = 5
+        text.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        text.textColor = .labelColor
+        text.translatesAutoresizingMaskIntoConstraints = false
+        box.addSubview(text)
+        NSLayoutConstraint.activate([
+            text.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 7),
+            text.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -7),
+            text.topAnchor.constraint(equalTo: box.topAnchor, constant: 3),
+            text.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -3),
+        ])
+        panel.contentView = box
+    }
+
+    /// Under the button, right edges aligned, so it stays over the window
+    /// the button belongs to rather than running off its right edge.
+    func show(_ string: String, below button: NSRect) {
+        text.stringValue = string
+        let size = panel.contentView!.fittingSize
+        var origin = NSPoint(x: button.maxX - size.width, y: button.minY - 6 - size.height)
+        if let screen = NSScreen.screens.first(where: { $0.frame.intersects(button) }) {
+            origin.x = max(origin.x, screen.visibleFrame.minX + 4)
+        }
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        panel.orderFrontRegardless()
+    }
+
+    func hide() { panel.orderOut(nil) }
 }

@@ -75,7 +75,7 @@ nonisolated enum MenuBarGlyph {
 
     // MARK: - The two birds
 
-    private struct Shape {
+    struct Shape {
         let outline: String
         let breast: String
         /// The white line between head and wing.
