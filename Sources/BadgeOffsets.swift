@@ -38,6 +38,12 @@ nonisolated enum BadgeOffsets {
         // Inbox and help buttons at the right of its own title bar, which it
         // describes only seconds after first being asked, and piecemeal.
         "com.hnc.Discord": 90,
+        // Describes nothing in its title bar, so the button went to the
+        // corner, over the right sidebar's toggle, which every window has.
+        // Surveyed 2026-11-18 alongside Chrome, VS Code, Messages, ChatGPT
+        // and Claude, which needed nothing, and Music and Photos, where the
+        // button sits at the end of the search field, which is acceptable.
+        "md.obsidian": 40,
     ]
 
     /// The user's own distances. A value that is not a number is dropped
