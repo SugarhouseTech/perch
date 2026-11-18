@@ -37,6 +37,8 @@ struct JorvikSettingsView<AppSettings: View>: View {
 
             }
             .formStyle(.grouped)
+            // Every label and description can be selected and copied.
+            .textSelection(.enabled)
             // The inset the removed heading used to provide.
             .padding(.top, 8)
 

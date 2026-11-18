@@ -71,7 +71,7 @@ Under **Apps** in Settings, add an app to treat it differently:
   Perch cannot read, and the button lands in the wrong place. Drag the slider
   or type a distance from the window's right edge. Discord and Obsidian come
   set up already.
-- **Show the button only on perched windows**: keeps the button off that
+- **Show the button only when window is perched**: keeps the button off that
   app's windows until they are perched, so a perched window can still always
   be told apart.
 
@@ -113,7 +113,7 @@ into a perched window, switch to it.
 
 | Action | Result |
 |---|---|
-| Scroll on a perched window | Scrolls the real window under the pointer, if **Scroll perched windows in place** is on in Settings (off by default) |
+| Scroll on a perched window | Scrolls the real window under the pointer, if **Scroll a perched window without switching to it** is on in Settings (off by default) |
 | Click a perched window | Takes you to the real window |
 | `option`-drag a perched window | Crops it |
 
@@ -129,7 +129,7 @@ instead.
 
 ### macOS 14 to 26
 
-With **Click and scroll perched windows in place** on in Settings (the
+With **Click and scroll a perched window without switching to it** on in Settings (the
 default here):
 
 | Action | Result |
@@ -148,14 +148,16 @@ running.
 
 - **Perching**: the shortcut (**Clear** removes it, and perching still works
   from the menu and the button), whether to show a perch button on the window
-  you're using and on perched windows, and what happens when you unperch a
-  window: it comes to the front, ready to use (the default), or stays where
-  it was.
+  you're using and an unperch button on perched windows, and what happens
+  when you unperch a window: **Leave it there** (the default) brings the real
+  window to the front where you see it; **Hide it** leaves it wherever it
+  was, which may be behind other windows.
 - **Perched Windows**: whether you can scroll (and, before macOS 27, click)
   a perched window without leaving the app you're in; whether perched windows
-  show on every desktop or only the one they were perched on; and the update
-  speed, up to 30 times a second by default. A perched window only redraws
-  when its window changes.
+  show on every desktop or only the one they were perched on.
+  A perched window redraws only when its window changes, up to 30 times a
+  second. To lower that, for example to save battery while perching a video:
+  `defaults write tech.sugarhouse.Perch captureRate -float 10`.
 - **General**: open at login, and a background behind the menu bar icon for
   busy wallpapers.
 - **Menu Bar** (macOS 14 and 15 only): hide the menu bar icon. On macOS 26

@@ -25,7 +25,7 @@ nonisolated enum UnpinBehavior: String, CaseIterable, Sendable {
 
     var title: String {
         switch self {
-        case .focus: "Bring it forward"
+        case .focus: "Leave it there"
         case .hide: "Hide it"
         }
     }
