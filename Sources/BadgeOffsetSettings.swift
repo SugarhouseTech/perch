@@ -17,9 +17,7 @@ struct BadgeOffsetSettings: View {
             LabeledContent {
                 addMenu
             } label: {
-                Text("Settings for an app")
-                Text("Add an app to have Perch ignore it, to move its perch button where it lands in the wrong place, or to show the button only once a window is perched. Changes show the next time you switch to the app.")
-                    .font(.settingsHelp)
+                Text("Change how Perch treats an app")
             }
             ForEach(Self.byName(offsets.keys), id: \.self) { id in
                 row(id)
