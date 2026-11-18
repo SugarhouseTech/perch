@@ -134,7 +134,8 @@ struct JorvikLaunchAtLoginToggle: View {
     @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
 
     var body: some View {
-        Toggle("Launch at Login", isOn: $launchAtLogin)
+        // macOS's own words for this, in System Settings > General.
+        Toggle("Open at login", isOn: $launchAtLogin)
             .onChange(of: launchAtLogin) { _, newValue in
                 do {
                     if newValue {

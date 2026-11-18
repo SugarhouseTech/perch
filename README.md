@@ -104,7 +104,7 @@ into a pinned window, switch to it.
 
 | Action | Result |
 |---|---|
-| Scroll on a pin | Scrolls the pinned window under the pointer, if **Interact through overlays** is on (off by default) |
+| Scroll on a pin | Scrolls the pinned window under the pointer, if **Scroll pins in place** is on in Settings (off by default) |
 | Click a pin | Takes you to the real window |
 | `option`-drag a pin | Crops it |
 
@@ -118,7 +118,7 @@ so the click reaches nothing. WindowPin takes you to the window instead.
 
 ### macOS 14 to 26
 
-With **Interact through overlays** on (the default here):
+With **Click and scroll pins in place** on in Settings (the default here):
 
 | Action | Result |
 |---|---|
@@ -135,21 +135,21 @@ Open **Settings…** from the menu bar icon, or open WindowPin again while it
 is running.
 
 - **Pinning**: the shortcut (**Clear** removes it, and pinning still works
-  from the menu and the button), what happens to a window when you unpin it,
-  and whether to show the pin button on pinned windows and on the window in
-  use. An unpinned window is brought forward, ready to type in (the
-  default), or left wherever it was.
-- **Pin Button Position**: per-app button positions, as above.
-- **Overlays**: the maximum frame rate (30 fps by default; a pin is only
-  redrawn when its window changes), **Interact through overlays**, and
-  **Pin to all spaces**, which shows pins on every Mission Control space
-  rather than only the one they were made on.
-- **Permissions**: whether each is granted, with a button to grant it.
+  from the menu and the button), whether to show a pin button on the window
+  you're using and on pinned windows, and what happens when you unpin a
+  window: it comes to the front, ready to use (the default), or stays where
+  it was.
+- **Pins**: whether you can scroll (and, before macOS 27, click) a pin
+  without leaving the app you're in; whether pins show on every desktop or
+  only the one they were made on; and the update speed, up to 30 times a
+  second by default. A pin only redraws when its window changes.
+- **General**: open at login, and a background behind the menu bar icon for
+  busy wallpapers.
 - **Menu Bar** (macOS 14 and 15 only): hide the menu bar icon. On macOS 26
   and later, use System Settings → Menu Bar instead. With the icon hidden,
   open WindowPin again to reach Settings.
-- **General**: launch at login, and an optional background behind the menu
-  bar icon for busy wallpapers.
+- **Permissions**: whether each is granted, with a button to grant it.
+- **Pin Button Placement**: per-app button positions, as above.
 
 Settings are saved as you change them.
 
