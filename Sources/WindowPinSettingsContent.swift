@@ -24,14 +24,20 @@ struct WindowPinSettingsContent: View {
     @StateObject private var accessibility = JorvikPermissionWatcher.accessibility()
     @StateObject private var screenRecording = JorvikPermissionWatcher.screenRecording()
 
-    /// What the switch above does, which is less on macOS 27: a click can no
-    /// longer be sent into another app's window there (see
-    /// `WindowOverlay.forwardEvents`), so only scrolling is passed on.
+    /// The interaction switch says what it does on this Mac. It does less
+    /// on macOS 27: a click can no longer be sent into another app's window
+    /// there (see `WindowOverlay.forwardEvents`), so only scrolling is
+    /// passed on.
+    private static var interactionTitle: String {
+        if #available(macOS 27, *) { return "Scroll pins in place" }
+        return "Click and scroll pins in place"
+    }
+
     private static var interactionCaption: String {
         if #available(macOS 27, *) {
-            return "Scrolling on an overlay scrolls the pinned window. A click always switches to the real window."
+            return "Scrolling over a pin scrolls its window, without leaving the app you're in. Clicking a pin always takes you to its window."
         }
-        return "Clicks and scrolls on an overlay are sent to the pinned window. \u{2318}-click an overlay to switch to the real window. When off, any click switches to the real window."
+        return "Clicks and scrolls on a pin go to its window, without leaving the app you're in. \u{2318}-click a pin to go to its window instead. When this is off, any click takes you to the window."
     }
 
     /// Only the tick is green: green text is too faint to read on a light window.
@@ -46,10 +52,14 @@ struct WindowPinSettingsContent: View {
     // Everything below is a plain grouped form: no fonts, sizes or spacing of
     // its own. A second `Text` in a label is the row's description, which the
     // form sets in its own secondary style.
+    // Ordered by how often each is likely to be wanted: pinning itself, how
+    // pins behave, then the app, permissions, and per-app fixes last.
+    // The words say what the user sees and gets, in the menu's terms: a
+    // "pin" is the floating copy of a window.
     var body: some View {
         Section("Pinning") {
             JorvikShortcutRecorder(
-                label: "Pin or unpin the window in use",
+                label: "Pin or unpin the window you're using",
                 keyCode: Binding(
                     get: { delegate.shortcutKeyCode },
                     set: { delegate.shortcutKeyCode = $0 }
@@ -70,23 +80,36 @@ struct WindowPinSettingsContent: View {
                 },
                 onRecordingChanged: { delegate.setHotkeySuspended($0) }
             )
+            Toggle(isOn: $badgeFocused) {
+                Text("Show a pin button on the window you're using")
+                Text("A small pin at the right of the title bar. Click it to pin the window.")
+            }
+            Toggle(isOn: $badgePinned) {
+                Text("Show a pin button on pinned windows")
+                Text("Click it to unpin.")
+            }
             Picker(selection: $unpinBehavior) {
                 ForEach(UnpinBehavior.allCases, id: \.self) { Text($0.title).tag($0) }
             } label: {
                 Text("When you unpin a window")
-                Text("Bring it forward puts the window in front, ready to type in. Hide it leaves the window wherever it was, often behind the app you are in.")
-            }
-            Toggle("Show a pin button on pinned windows", isOn: $badgePinned)
-            Toggle(isOn: $badgeFocused) {
-                Text("Show a pin button on the window in use")
-                Text("The button sits at the right of the title bar. Click it to pin or unpin that window.")
+                Text("Bring it forward puts the window in front, ready to use. Hide it just removes the pin, and the window stays where it was, which may be behind other windows.")
             }
         }
 
-        BadgeOffsetSettings()
-            .disabled(!badgePinned && !badgeFocused)
+        Section("Pins") {
+            Toggle(isOn: $forwardEvents) {
+                Text(Self.interactionTitle)
+                Text(Self.interactionCaption)
+            }
 
-        Section("Overlays") {
+            Toggle(isOn: $pinToAllSpaces) {
+                Text("Show pins on every desktop")
+                Text("When this is off, a pin appears only on the desktop where you made it. Desktops are the spaces you switch between in Mission Control.")
+            }
+            .onChange(of: pinToAllSpaces) { _, _ in
+                tracker.updateAllSpaces()
+            }
+
             Picker(selection: $captureRate) {
                 Text("0.5 fps").tag(0.5)
                 Text("1 fps").tag(1.0)
@@ -97,23 +120,20 @@ struct WindowPinSettingsContent: View {
                 Text("30 fps").tag(30.0)
                 Text("60 fps").tag(60.0)
             } label: {
-                Text("Maximum frame rate")
-                Text("An overlay is redrawn only when its window changes, so a high rate costs nothing while the window is still.")
+                Text("Update speed")
+                Text("How many times a second (fps) a pin can redraw, which matters for video and animation. A pin only redraws when its window changes, so a high setting costs nothing while the window is still.")
             }
             .onChange(of: captureRate) { _, _ in
                 tracker.updateCaptureRate()
             }
-
-            Toggle(isOn: $forwardEvents) {
-                Text("Interact through overlays")
-                Text(Self.interactionCaption)
-            }
-
-            Toggle("Pin to all spaces", isOn: $pinToAllSpaces)
-                .onChange(of: pinToAllSpaces) { _, _ in
-                    tracker.updateAllSpaces()
-                }
         }
+
+        Section("General") {
+            JorvikLaunchAtLoginToggle()
+            MenuBarPillToggle { delegate.updateIcon() }
+        }
+
+        MenuBarVisibilitySettings()
 
         Section("Permissions") {
             LabeledContent {
@@ -126,7 +146,7 @@ struct WindowPinSettingsContent: View {
                 }
             } label: {
                 Text("Accessibility")
-                Text("For the keyboard shortcut, the pin buttons, and bringing a pinned window to the front.")
+                Text("Lets the shortcut and pin buttons work, pins scroll, and windows come to the front.")
             }
             // The Settings window is cached, so these watchers would otherwise poll for the
             // life of the app once Settings had been opened.
@@ -147,15 +167,12 @@ struct WindowPinSettingsContent: View {
                 }
             } label: {
                 Text("Screen Recording")
-                Text("To show a pinned window's contents in its overlay.")
+                Text("Lets a pin show its window's live contents. WindowPin looks only at windows you pin, and saves and sends nothing.")
             }
         }
 
-        MenuBarVisibilitySettings()
-
-        Section("General") {
-            JorvikLaunchAtLoginToggle()
-            MenuBarPillToggle { delegate.updateIcon() }
-        }
+        // The least used: fixes for apps where the pin button lands badly.
+        BadgeOffsetSettings()
+            .disabled(!badgePinned && !badgeFocused)
     }
 }

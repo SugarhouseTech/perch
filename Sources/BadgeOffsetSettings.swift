@@ -12,12 +12,12 @@ struct BadgeOffsetSettings: View {
     @State private var onlyWhenPinned = BadgeOffsets.onlyWhenPinned()
 
     var body: some View {
-        Section("Pin Button Position") {
+        Section("Pin Button Placement") {
             LabeledContent {
                 addMenu
             } label: {
-                Text("Position by app")
-                Text("The pin button moves left of any buttons it finds at the right of a title bar. Where it lands in the wrong place, add the app and set the button's distance from the window's right edge. Or show it only on the app's pinned windows, where it says a window is pinned. A change shows the next time you switch to the app.")
+                Text("Adjust for an app")
+                Text("WindowPin keeps the pin button clear of a title bar's own buttons. If it lands in the wrong place in an app, add the app here and slide the button to the right spot, measured from the window's right edge. Or tick Only when pinned to show it only on that app's pinned windows. Changes show the next time you switch to the app.")
             }
             ForEach(Self.byName(offsets.keys), id: \.self) { id in
                 row(id)
