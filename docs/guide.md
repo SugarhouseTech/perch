@@ -122,7 +122,8 @@ make run       # build and open it
 make install   # copy it to /Applications (INSTALL_DIR to change)
 ```
 
-Perch has no updater: pull and run `make install` again.
+A copy built from source has no updater and no trial: pull and run
+`make install` again.
 
 So permissions survive rebuilds, sign with your own Developer ID in a
 `local.mk` beside the Makefile (git ignores it):
@@ -132,8 +133,7 @@ LOCAL_SIGN_ID   := Developer ID Application: Your Name (TEAMID)
 LOCAL_BUNDLE_ID := com.example.Perch
 ```
 
-`make release` builds a notarised universal app, zipped with its SHA-256, in
-`.build/release-app`. It needs a clean tree and a notarytool profile; see
-[scripts/release.sh](../scripts/release.sh).
+The download is the same code built with `PERCH_DIRECT=1`, which adds
+Sparkle for updates and the trial and licence.
 
 To work on the code, start with [AGENTS.md](../AGENTS.md).
