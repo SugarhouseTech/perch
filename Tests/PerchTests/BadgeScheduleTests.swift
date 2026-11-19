@@ -540,6 +540,36 @@ private func simulate(_ sc: Scenario) -> Trace {
         #expect(r29 == .stop)
     }
 
+    @Test func resettingAfterPauseDropsPendingFollowAndStartsCleanOnResume() {
+        var beforePause = BadgeSchedule()
+        let first = beforePause.refresh(following: true, buttonHeld: false, now: 10)
+        #expect(first.runsNow && first.startsTimer)
+        #expect(beforePause.isFollowing)
+
+        // PinBadgeController discards its schedule when paused. A queued timer
+        // from the old schedule must not carry follow state into the resumed one.
+        var afterPause = BadgeSchedule()
+        #expect(!afterPause.isFollowing)
+        #expect(afterPause.tick(now: 10.1, buttonHeld: false) == .stop)
+
+        let resumed = afterPause.refresh(following: true, buttonHeld: false, now: 100)
+        #expect(resumed.runsNow && resumed.startsTimer)
+        #expect(afterPause.isFollowing)
+        #expect(afterPause.followUntil == 100 + BadgeSchedule.followAfterRefresh)
+    }
+
+    @Test func followExpiresAtBoundaryAndCanBeRestartedByANewRefresh() {
+        var schedule = BadgeSchedule()
+        _ = schedule.refresh(following: true, buttonHeld: false, now: 1)
+        let boundary = 1 + BadgeSchedule.followAfterRefresh
+        #expect(schedule.tick(now: boundary, buttonHeld: false) == .stop)
+        #expect(!schedule.isFollowing)
+
+        let restarted = schedule.refresh(following: true, buttonHeld: false, now: boundary)
+        #expect(restarted.runsNow && restarted.startsTimer)
+        #expect(schedule.isFollowing)
+    }
+
     @Test(arguments: seeds)
     func aLongQuietGapLeavesNothingRunning(_ seed: UInt64) {
         let sc = makeScenario(seed: seed)

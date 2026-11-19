@@ -7,10 +7,13 @@ import UniformTypeIdentifiers
 /// Built-in rows (`BadgeOffsets.builtIn`) appear like any other.
 struct BadgeOffsetSettings: View {
 
+    let badgeControlsEnabled: Bool
+
     /// Copies of what is stored, so the rows redraw as it changes.
     @State private var offsets = BadgeOffsets.all()
     @State private var onlyWhenPinned = BadgeOffsets.onlyWhenPinned()
     @State private var ignored = BadgeOffsets.ignored()
+    @State private var pauseApps = BadgeOffsets.pauseApps()
 
     var body: some View {
         Section("Apps") {
@@ -19,7 +22,7 @@ struct BadgeOffsetSettings: View {
             } label: {
                 Text("Change how Perch treats an app")
             }
-            ForEach(Self.byName(offsets.keys), id: \.self) { id in
+            ForEach(Self.byName(Set(offsets.keys).union(pauseApps)), id: \.self) { id in
                 row(id)
             }
         }
@@ -28,6 +31,7 @@ struct BadgeOffsetSettings: View {
     private func row(_ id: String) -> some View {
         let app = Self.app(id)
         let isIgnored = ignored.contains(id)
+        let pausesPerch = pauseApps.contains(id)
         let distance = Binding<Double>(
             get: { offsets[id] ?? BadgeOffsets.range.lowerBound },
             set: { value in
@@ -59,6 +63,12 @@ struct BadgeOffsetSettings: View {
                 )) {
                     Text("Ignore this app")
                 }
+                Toggle(isOn: Binding(
+                    get: { pausesPerch },
+                    set: { BadgeOffsets.setPauseApp($0, for: id); reload() }
+                )) {
+                    Text("Pause Perch while this app is in front")
+                }
                 Group {
                     HStack(spacing: 8) {
                         Text("Button position")
@@ -84,7 +94,7 @@ struct BadgeOffsetSettings: View {
                         Text("Show the button only when window is perched")
                     }
                 }
-                .disabled(isIgnored)
+                .disabled(isIgnored || !badgeControlsEnabled)
             }
             .padding(.leading, 22)
         }
@@ -95,6 +105,7 @@ struct BadgeOffsetSettings: View {
         offsets = BadgeOffsets.all()
         onlyWhenPinned = BadgeOffsets.onlyWhenPinned()
         ignored = BadgeOffsets.ignored()
+        pauseApps = BadgeOffsets.pauseApps()
     }
 
     private var addMenu: some View {
@@ -102,7 +113,7 @@ struct BadgeOffsetSettings: View {
             let candidates = NSWorkspace.shared.runningApplications.filter {
                 $0.activationPolicy == .regular
                     && $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
-                    && $0.bundleIdentifier.map { offsets[$0] == nil } == true
+                    && $0.bundleIdentifier.map { offsets[$0] == nil && !pauseApps.contains($0) } == true
             }
             .sorted { ($0.localizedName ?? "").localizedStandardCompare($1.localizedName ?? "") == .orderedAscending }
             if candidates.isEmpty {
@@ -111,7 +122,9 @@ struct BadgeOffsetSettings: View {
             ForEach(candidates, id: \.processIdentifier) { running in
                 Button {
                     guard let id = running.bundleIdentifier else { return }
-                    BadgeOffsets.set(BadgeOffsets.starting(for: id, automatic: BadgeOffsets.lastAutomatic[id]), for: id)
+                    if offsets[id] == nil {
+                        BadgeOffsets.set(BadgeOffsets.starting(for: id, automatic: BadgeOffsets.lastAutomatic[id]), for: id)
+                    }
                     offsets = BadgeOffsets.all()
                 } label: {
                     Label {
@@ -161,7 +174,7 @@ struct BadgeOffsetSettings: View {
         return image
     }
 
-    private static func byName(_ ids: Dictionary<String, Double>.Keys) -> [String] {
+    private static func byName(_ ids: Set<String>) -> [String] {
         ids.sorted { app($0).name.localizedStandardCompare(app($1).name) == .orderedAscending }
     }
 }

@@ -407,3 +407,84 @@ private func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGR
         #expect(G.isMove(dx: dx, dy: dy, threshold: 3) == isMove)
     }
 }
+
+@Suite struct RestoredCropGeometryProperties {
+
+    /// Rebuilding a paused pin from its saved crop must preserve what the
+    /// user selected, independently of where the real window later moved.
+    @Test(arguments: 0..<40)
+    func savedCropKeepsItsWindowMappingAfterMove(seed: Int) {
+        var rng = SeededGenerator(seed: UInt64(seed))
+        for _ in 0..<250 {
+            let width = CGFloat(Int.random(in: 100...2400, using: &rng))
+            let height = CGFloat(Int.random(in: 100...1600, using: &rng))
+            let cropWidth = CGFloat(Int.random(in: 16...Int(width), using: &rng))
+            let cropHeight = CGFloat(Int.random(in: 16...Int(height), using: &rng))
+            let crop = rect(
+                CGFloat(Int.random(in: 0...Int(width - cropWidth), using: &rng)),
+                CGFloat(Int.random(in: 0...Int(height - cropHeight), using: &rng)),
+                cropWidth,
+                cropHeight
+            )
+            let target = rect(
+                CGFloat(Int.random(in: -3000...3000, using: &rng)),
+                CGFloat(Int.random(in: -2000...2000, using: &rng)),
+                width,
+                height
+            )
+            let panelSize = crop.size
+            let panelFrame = G.panelFrame(target: target, crop: crop, movedOrigin: nil)
+            #expect(panelFrame.size == panelSize)
+
+            let x = CGFloat.random(in: 0...panelSize.width, using: &rng)
+            let y = CGFloat.random(in: 0...panelSize.height, using: &rng)
+            let mapped = G.targetPoint(
+                location: CGPoint(x: x, y: y),
+                panelSize: panelSize,
+                window: target,
+                crop: crop,
+                clamped: false
+            )
+            let expected = CGPoint(x: target.minX + crop.minX + x,
+                                    y: target.minY + crop.minY + panelSize.height - y)
+            #expect(mapped.map { abs($0.x - expected.x) <= 1e-9
+                                && abs($0.y - expected.y) <= 1e-9 } == true)
+        }
+    }
+
+    /// A crop clipped by a window resize keeps a nonempty panel and maps only
+    /// points inside the surviving part of the real window.
+    @Test(arguments: 0..<30)
+    func savedCropClippedByResizeRemainsUsable(seed: Int) {
+        var rng = SeededGenerator(seed: UInt64(seed))
+        for _ in 0..<250 {
+            let oldWidth = CGFloat(Int.random(in: 100...2000, using: &rng))
+            let oldHeight = CGFloat(Int.random(in: 100...1200, using: &rng))
+            let cropWidth = CGFloat(Int.random(in: 16...Int(oldWidth), using: &rng))
+            let cropHeight = CGFloat(Int.random(in: 16...Int(oldHeight), using: &rng))
+            let crop = rect(
+                CGFloat(Int.random(in: 0...Int(oldWidth - cropWidth), using: &rng)),
+                CGFloat(Int.random(in: 0...Int(oldHeight - cropHeight), using: &rng)),
+                cropWidth,
+                cropHeight
+            )
+            let newWindow = CGSize(width: CGFloat(Int.random(in: 1...Int(oldWidth), using: &rng)),
+                                   height: CGFloat(Int.random(in: 1...Int(oldHeight), using: &rng)))
+            let shown = G.shownRect(crop: crop, windowSize: newWindow)
+            #expect(shown.width >= 1)
+            #expect(shown.height >= 1)
+            #expect(shown == crop || CGRect(origin: .zero, size: newWindow).contains(shown))
+            let panel = G.panelFrame(target: rect(0, 0, newWindow.width, newWindow.height),
+                                     crop: crop, movedOrigin: nil)
+            #expect(panel.size == shown.size)
+        }
+    }
+
+    @Test func movedSavedCropRetainsItsUserChosenOrigin() {
+        let crop = rect(40, 75, 180, 120)
+        let origin = CGPoint(x: -900, y: 1440)
+        let target = rect(300, 200, 900, 700)
+        #expect(G.panelFrame(target: target, crop: crop, movedOrigin: origin)
+                == CGRect(origin: origin, size: crop.size))
+    }
+}

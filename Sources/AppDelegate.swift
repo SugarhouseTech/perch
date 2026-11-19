@@ -18,13 +18,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var badges: PinBadgeController?
     private var focusObserver: (any NSObjectProtocol)?
 
+    private var pause = AppPause()
+
     var shortcutKeyCode: UInt16 = 35
     var shortcutModifiers: NSEvent.ModifierFlags = [.command, .control]
 
     /// The shortcut recorder calls this while it is listening, so pressing the
     /// shortcut that is already set records it instead of toggling a pin.
     func setHotkeySuspended(_ suspended: Bool) {
-        HotkeyTap.shared.isSuspended = suspended
+        pause.recordingShortcut = suspended
+        HotkeyTap.shared.isSuspended = pause.passesShortcutThrough
     }
 
     private var permissionTimer: Timer?
@@ -90,6 +93,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         focusObserver = NSWorkspace.shared.notificationCenter.observeOnMain(NSWorkspace.didActivateApplicationNotification) { [weak self] notification in
             guard let self = self else { return }
+            self.updateAppPause()
+            if let front = NSWorkspace.shared.frontmostApplication {
+                self.tracker.appActivated(front.processIdentifier)
+            }
             self.recoverEventTapIfNeeded()
             // Covers coming back from System Settings with a permission
             // granted or taken away.
@@ -101,6 +108,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
+        NotificationCenter.default.observeOnMain(UserDefaults.didChangeNotification) { [weak self] _ in
+            self?.updateAppPause()
+        }
+        updateAppPause()
         registerHotkey()
 
         // Redraw the status icon when the display configuration changes — the
@@ -115,6 +126,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Shown without taking the keyboard: at login, it would otherwise
         // grab whatever the user had started typing into.
         if SetupWindow.shouldShowAtLaunch { SetupWindow.show(shortcut: shortcutDisplayString(), activate: false) }
+    }
+
+    private func updateAppPause() {
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        guard pause.update(frontmost: front, selected: BadgeOffsets.pauseApps()) else { return }
+        let paused = pause.isPaused
+        wplog(paused ? "Perch paused for the frontmost app" : "Perch resumed after switching apps")
+        HotkeyTap.shared.isSuspended = pause.passesShortcutThrough
+        if paused {
+            PinFeedbackHUD.hide()
+            badges?.setPaused(true)
+        }
+        tracker.setPaused(paused)
+        if !paused { badges?.setPaused(false) }
     }
 
     @objc private func showSetup() {
@@ -138,13 +163,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        JorvikStatusItemVisibility.handleReopen()
-        // Launching the app again is the only way in when the menu-bar icon
-        // can't be seen: hidden by a menu-bar manager, or crowded out of the
-        // bar. Bring the icon back, as above, and open Settings so there is
-        // something to see; or setup, while that is what stands in the way.
-        if SetupWindow.isMissingPermission { showSetup() } else { openSettings() }
-        return true
+        // Floating copies also count as visible windows. Settings must be
+        // reachable even when one is on screen or a permission is missing.
+        openSettings()
+        return false
     }
 
     // MARK: - Status item
@@ -236,11 +258,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
-        // The last other app is only a fallback, for when Perch itself is
-        // in front. Its focused window is asked for now, so a window closed
-        // since is never offered.
-        let remembered = lastForeignApp.flatMap { $0.isTerminated ? nil : WindowDetector.focusedWindow(of: $0) }
-        let targetWindow = WindowDetector.getFrontmostForeignWindow() ?? remembered
+        if pause.isPaused {
+            let title = NSWorkspace.shared.frontmostApplication?.localizedName
+                .map { "Perch is paused while \($0) is in front" } ?? "Perch is paused"
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.image = Self.symbol("pause.circle")
+            item.isEnabled = false
+            menu.addItem(item)
+            addPerchedWindows(to: menu, frontPID: NSWorkspace.shared.frontmostApplication?.processIdentifier)
+        } else {
+            addWindowActions(to: menu)
+        }
+
+        menu.addItem(NSMenuItem.separator())
+
+        let settingsItem = NSMenuItem(title: "Settings\u{2026}", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        settingsItem.image = Self.symbol("gearshape")
+        menu.addItem(settingsItem)
+        let aboutItem = NSMenuItem(title: "About Perch", action: #selector(openAbout), keyEquivalent: "")
+        aboutItem.target = self
+        aboutItem.image = Self.symbol("info.circle")
+        menu.addItem(aboutItem)
+        let quitItem = NSMenuItem(title: "Quit Perch", action: #selector(quit), keyEquivalent: "q")
+        quitItem.image = Self.symbol("power")
+        menu.addItem(quitItem)
+    }
+
+    private func addWindowActions(to menu: NSMenu) {
+        var app = NSWorkspace.shared.frontmostApplication
+        // Only offer the previous app's window when Perch itself has focus.
+        if app?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+            app = lastForeignApp
+        }
+        let targetWindow = app.flatMap { $0.isTerminated ? nil : WindowDetector.focusedWindow(of: $0) }
 
         if let fw = targetWindow {
             let isPinned = tracker.isPinned(windowID: fw.windowID)
@@ -262,41 +313,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             menu.addItem(item)
         } else {
-            let item = NSMenuItem(title: "No window to perch", action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: "No focused window to perch", action: nil, keyEquivalent: "")
             item.isEnabled = false
             item.image = Self.robinMenuImage(perched: false)
             menu.addItem(item)
         }
 
-        if !tracker.pinnedWindows.isEmpty {
-            menu.addItem(NSMenuItem.separator())
-            menu.addItem(NSMenuItem.sectionHeader(title: "Perched"))
-            let front = targetWindow?.ownerPID
-            for pw in PinPolicy.menuOrder(tracker.pinnedWindows, frontPID: front) {
-                let item = NSMenuItem(title: pw.displayLabel, action: #selector(unpinMenuItem(_:)), keyEquivalent: "")
-                item.representedObject = pw.windowID
-                item.image = Self.appMenuImage(pid: pw.ownerPID)
-                item.toolTip = "Unperch"
-                menu.addItem(item)
-            }
-            let unperchAll = NSMenuItem(title: "Unperch All", action: #selector(unpinAllAction), keyEquivalent: "")
-            unperchAll.image = Self.symbol("pip.remove")
-            menu.addItem(unperchAll)
-        }
+        addPerchedWindows(to: menu, frontPID: app?.processIdentifier)
+    }
 
+    private func addPerchedWindows(to menu: NSMenu, frontPID: pid_t?) {
+        guard !tracker.pinnedWindows.isEmpty else { return }
         menu.addItem(NSMenuItem.separator())
-
-        let settingsItem = NSMenuItem(title: "Settings\u{2026}", action: #selector(openSettings), keyEquivalent: ",")
-        settingsItem.target = self
-        settingsItem.image = Self.symbol("gearshape")
-        menu.addItem(settingsItem)
-        let aboutItem = NSMenuItem(title: "About Perch", action: #selector(openAbout), keyEquivalent: "")
-        aboutItem.target = self
-        aboutItem.image = Self.symbol("info.circle")
-        menu.addItem(aboutItem)
-        let quitItem = NSMenuItem(title: "Quit Perch", action: #selector(quit), keyEquivalent: "q")
-        quitItem.image = Self.symbol("power")
-        menu.addItem(quitItem)
+        menu.addItem(NSMenuItem.sectionHeader(title: "Unperch a Window"))
+        for pw in PinPolicy.menuOrder(tracker.pinnedWindows, frontPID: frontPID) {
+            let item = NSMenuItem(title: pw.displayLabel, action: #selector(unpinMenuItem(_:)), keyEquivalent: "")
+            item.representedObject = pw.windowID
+            item.image = Self.appMenuImage(pid: pw.ownerPID)
+            item.toolTip = "Unperch"
+            menu.addItem(item)
+        }
+        let unperchAll = NSMenuItem(title: "Unperch All", action: #selector(unpinAllAction), keyEquivalent: "")
+        unperchAll.image = Self.symbol("pip.remove")
+        menu.addItem(unperchAll)
     }
 
     /// Every item gets an image: macOS 26 and later add one to Settings by
@@ -328,15 +367,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleFrontmost(_ sender: NSMenuItem) {
         guard let fw = sender.representedObject as? ForeignWindow else { return }
+        if WindowDetector.windowExists(fw.windowID, ownerPID: fw.ownerPID) == false {
+            PinFeedbackHUD.show("That window has closed")
+            return
+        }
         let wasPinned = tracker.isPinned(windowID: fw.windowID)
         guard toggleUnlessIgnored(fw) else { return }
         showPinFeedback(wasPinned: wasPinned, window: fw)
     }
 
     @objc private func unpinMenuItem(_ sender: NSMenuItem) {
-        guard let windowID = sender.representedObject as? UInt32 else { return }
+        guard let windowID = sender.representedObject as? UInt32,
+              tracker.isPinned(windowID: windowID) else { return }
         tracker.unpin(windowID: windowID, byUser: true)
-        PinFeedbackHUD.show("Unperched", windowID: CGWindowID(windowID))
+        PinFeedbackHUD.show("Unperched", windowID: pause.isPaused ? nil : windowID)
     }
 
     @objc private func unpinAllAction() {
@@ -367,7 +411,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// While Settings is open Perch shows in the Dock and the app switcher,
     /// so the window can be found again after clicking away; it goes back to
-    /// the menu bar alone when the window closes.
+    /// running in the background when the window closes.
     private func showInDockWhileOpen(_ window: NSWindow?) {
         guard let window else { return }
         NSApp.setActivationPolicy(.regular)
@@ -390,6 +434,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Perch or unperch, unless the app is ignored and the window not yet perched.
     private func toggleUnlessIgnored(_ fw: ForeignWindow) -> Bool {
+        guard !pause.isPaused else { return false }
         if !tracker.isPinned(windowID: fw.windowID), isIgnored(fw) {
             PinFeedbackHUD.show("Perch ignores \(fw.ownerName)", windowID: CGWindowID(fw.windowID))
             wplog("toggle: \(fw.ownerName) is ignored")
@@ -497,14 +542,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func togglePinFrontmostWindow() {
+        guard !pause.isPaused else { return }
         guard let fw = WindowDetector.getFrontmostForeignWindow() else {
             wplog("togglePin: No foreign window found")
+            PinFeedbackHUD.show("Couldn’t identify the focused window")
             return
         }
         let wasPinned = tracker.isPinned(windowID: fw.windowID)
         guard toggleUnlessIgnored(fw) else { return }
         showPinFeedback(wasPinned: wasPinned, window: fw)
-        let action = wasPinned ? "Unperched" : "Perched"
+        let isPinned = tracker.isPinned(windowID: fw.windowID)
+        guard isPinned != wasPinned else { return }
+        let action = isPinned ? "Perched" : "Unperched"
         let title = fw.windowTitle.isEmpty ? fw.ownerName : fw.windowTitle
         wplog("togglePin: \(action) '\(title)' (wid=\(fw.windowID))")
     }
@@ -515,7 +564,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Recording. The setup window, which the tracker has just asked for,
         // says so; a badge under it would only be in the way.
         guard isPinned || wasPinned else { return }
-        PinFeedbackHUD.show(isPinned ? "Perched" : "Unperched", windowID: CGWindowID(fw.windowID))
+        let waitsForAppSwitch = isPinned && NSWorkspace.shared.frontmostApplication?.processIdentifier == fw.ownerPID
+        let message = waitsForAppSwitch ? "Perched. Switch apps to see it." : (isPinned ? "Perched" : "Unperched")
+        PinFeedbackHUD.show(message, windowID: fw.windowID)
     }
 
     // MARK: - Shortcut configuration

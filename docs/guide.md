@@ -14,7 +14,12 @@ already perched:
 - Click the menu bar icon and choose the window at the top.
 
 The menu lists every perched window. Choose one to unperch it, or choose
-**Unperch All**. Perch unperches closed windows by itself.
+**Unperch All**. These actions are also available while Perch is paused.
+Perch unperches closed windows by itself.
+
+A new perch appears when you switch to another app. A full-window perch
+steps aside while its source app is in front. A crop can stay visible while
+you use a different window in the same app.
 
 ## Cropping
 
@@ -44,11 +49,12 @@ click it to switch to it.
 | Action | Result |
 |---|---|
 | Click | Takes you to the real window |
-| Scroll | Scrolls the real window, if **Scroll a perched window without switching to it** is on |
+| Scroll vertically | Scrolls the real window, if **Scroll a perched window without switching to it** is on and the app supports it |
 | `option`-drag | Crops |
 
-Scrolling needs the app to support macOS accessibility. Most Mac apps do.
-Electron and Chromium apps often don't, and won't scroll.
+Perch uses macOS Accessibility to scroll. Some apps, including some Electron
+and Chromium apps, don't expose scroll controls. Click the perched copy to
+open the original window and scroll there.
 
 ### macOS 14 to 26
 
@@ -69,11 +75,14 @@ running.
   whether perched windows show on every desktop.
 - **General**: open at login, and a background behind the menu bar icon for
   busy wallpapers.
-- **Menu Bar** (macOS 14 and 15): hide the menu bar icon. On macOS 26 and
-  later, use System Settings → Menu Bar. Open Perch again to reach Settings
-  with the icon hidden.
+- **Show in menu bar (top of screen)** is on by default. With it off, open
+  Perch again to reach Settings. **Done** closes Settings and keeps Perch
+  running in the background. **Quit Perch** exits the app.
 - **Permissions**: what's granted, with a button for what isn't.
 - **Apps**: change how Perch treats an app.
+  - **Pause Perch while this app is in front** hides perched windows and their
+    buttons on every display, stops capture, and lets the app use the perch
+    shortcut. Switch away to resume with the windows that are still open.
   - **Ignore this app**: no buttons, and its windows can't be perched.
   - **Button position**: for apps whose title bars Perch can't read, set
     where the button goes. Discord and Obsidian are set up already.
@@ -92,8 +101,8 @@ Both are in System Settings → Privacy & Security. The setup window asks for
 them on first run, and the menu bar icon shows a red dot while one is
 missing.
 
-- **Accessibility**: the shortcut, the title bar buttons, scrolling, and
-  bringing windows forward.
+- **Accessibility**: identifying the window you’re using, the shortcut, the
+  title bar buttons, scrolling, and bringing windows forward.
 - **Screen Recording**: showing what's in a perched window. macOS sometimes
   needs Perch restarted before this takes effect; the setup window has a
   button for it.
@@ -104,7 +113,9 @@ missing.
 Accessibility grant to one exact build. Remove Perch from the Accessibility
 list and add it again, or sign your builds (see below).
 
-**A perched window is blank.** Grant Screen Recording, then restart Perch.
+**A perched window says Capture stopped.** Click **Retry** on the perched
+copy. If Screen Recording is missing, grant it in Setup and restart Perch
+if prompted.
 
 **The menu bar icon is missing.** Run Perch from `/Applications`; menu bar
 managers such as Bartender only see apps there. Or open Perch again to reach

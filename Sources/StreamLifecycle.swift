@@ -55,6 +55,12 @@ nonisolated struct StreamLifecycle {
         case streamSetupFailed
         /// The running stream failed to start, or stopped on its own.
         case streamFailed
+        /// The stream delivered a complete frame for the current capture.
+        case frameReceived
+        /// A visible stream has not delivered its first complete frame in time.
+        case firstFrameTimedOut
+        /// The user asked Perch to try capture again.
+        case retryRequested
         /// A retry's wait is over.
         case retryFired
         /// The pin was taken down for good.
@@ -83,11 +89,23 @@ nonisolated struct StreamLifecycle {
         case gaveUp
     }
 
+    enum CaptureState: Equatable {
+        case idle
+        case starting
+        case reconnecting
+        case live
+        case stopped
+        case paused
+    }
+
     /// Showing over everything, as opposed to waiting behind its window.
     private(set) var pinVisible = false
     /// The system said the pin cannot be seen.
     private(set) var outOfSight = false
     private(set) var streamRunning = false
+    private(set) var captureState: CaptureState = .idle
+    private var hasProducedFrame = false
+    private var currentStreamHasFrame = false
     /// ScreenCaptureKit has listed the window.
     private(set) var windowKnown = false
     private(set) var resolving = false
@@ -114,6 +132,9 @@ nonisolated struct StreamLifecycle {
             // report pauses it. Trusting the old answer could leave the pin
             // frozen if the report of it coming into view never arrived.
             outOfSight = false
+            if streamRunning {
+                captureState = currentStreamHasFrame ? .live : (hasProducedFrame ? .reconnecting : .starting)
+            }
             restarts = 0
             effects.append(.syncFrame)
             guard onScreen else { return effects }
@@ -126,6 +147,7 @@ nonisolated struct StreamLifecycle {
         case .sentBehind:
             guard pinVisible else { return [] }
             pinVisible = false
+            if captureState != .idle { captureState = .paused }
             behindStopPending = true
             return [.stopFrameSync, .scheduleBehindStop]
 
@@ -176,12 +198,30 @@ nonisolated struct StreamLifecycle {
 
         case .streamSetupFailed:
             streamRunning = false
-            return []
+            return restartAfterFailure()
 
         case .streamFailed:
             guard streamRunning else { return [] }
             streamRunning = false
             return restartAfterFailure()
+
+        case .frameReceived:
+            guard streamRunning else { return [] }
+            hasProducedFrame = true
+            currentStreamHasFrame = true
+            captureState = .live
+            return []
+
+        case .firstFrameTimedOut:
+            guard streamRunning, !currentStreamHasFrame else { return [] }
+            streamRunning = false
+            return [.stopStream] + restartAfterFailure()
+
+        case .retryRequested:
+            guard captureState == .stopped, pinVisible, !outOfSight, !denied else { return [] }
+            restarts = 0
+            windowKnown = false
+            return startStream()
 
         case .retryFired:
             guard pinVisible, !outOfSight, !streamRunning else { return [] }
@@ -204,14 +244,19 @@ nonisolated struct StreamLifecycle {
         guard hidden != outOfSight else { return [] }
         outOfSight = hidden
         guard pinVisible else { return [] }
-        if hidden { return stopStream() + [.stopFrameSync] }
+        if hidden {
+            if captureState != .idle { captureState = .paused }
+            return stopStream() + [.stopFrameSync]
+        }
         return [.syncFrame] + startStream() + [.startFrameSync]
     }
 
     private mutating func startStream() -> [Effect] {
         guard !streamRunning, !outOfSight, !denied else { return [] }
+        captureState = hasProducedFrame ? .reconnecting : .starting
         guard windowKnown else { return resolve(thenStart: true) }
         streamRunning = true
+        currentStreamHasFrame = false
         return [.startStream]
     }
 
@@ -236,8 +281,13 @@ nonisolated struct StreamLifecycle {
     /// ScreenCaptureKit never lists would otherwise be looked up, in a full
     /// listing of every window, once a second for as long as the pin was up.
     private mutating func scheduleResolveRetry(_ start: Bool) -> [Effect] {
-        guard start, restarts < Self.maxRestarts else { return [] }
+        guard start, pinVisible, !outOfSight else { return [] }
+        guard restarts < Self.maxRestarts else {
+            captureState = .stopped
+            return [.gaveUp]
+        }
         restarts += 1
+        captureState = .reconnecting
         return [.scheduleRetry]
     }
 
@@ -245,8 +295,12 @@ nonisolated struct StreamLifecycle {
     /// pin on a frozen frame until it next goes behind and comes back.
     private mutating func restartAfterFailure() -> [Effect] {
         guard pinVisible, !outOfSight, !denied else { return [] }
-        guard restarts < Self.maxRestarts else { return [.gaveUp] }
+        guard restarts < Self.maxRestarts else {
+            captureState = .stopped
+            return [.gaveUp]
+        }
         restarts += 1
+        captureState = .reconnecting
         return [.scheduleRetry]
     }
 }

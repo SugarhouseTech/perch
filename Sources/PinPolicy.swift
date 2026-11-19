@@ -24,6 +24,8 @@ nonisolated enum PinPolicy {
 
     /// What a pruning pass decided.
     struct PruneOutcome: Equatable {
+        /// Paused pins whose original windows have been positively identified.
+        var restore: Set<UInt32> = []
         /// Pins to take down.
         var remove: Set<UInt32>
         /// Pins whose last lookup said they are gone. One more such lookup
@@ -55,6 +57,7 @@ nonisolated enum PinPolicy {
     /// and one after waking has not been seen gone twice in a row, only
     /// twice either side of a time the lists cannot be trusted.
     static func prune(pinned: Set<UInt32>,
+                      awaitingRestore: Set<UInt32> = [],
                       lookups: [UInt32: Bool?],
                       missingOnce: Set<UInt32>,
                       now: TimeInterval,
@@ -64,7 +67,8 @@ nonisolated enum PinPolicy {
             return PruneOutcome(remove: [], missingOnce: [])
         }
         let gone = pinned.filter { (lookups[$0] ?? nil) == false }
-        return PruneOutcome(remove: gone.intersection(missingOnce), missingOnce: gone)
+        let restore = awaitingRestore.intersection(pinned).filter { (lookups[$0] ?? nil) == true }
+        return PruneOutcome(restore: restore, remove: gone.intersection(missingOnce), missingOnce: gone)
     }
 
     // MARK: - Layering
@@ -108,5 +112,21 @@ nonisolated enum PinPolicy {
             if byName != .orderedSame { return byName == .orderedAscending }
             return a.windowID < b.windowID  // a stable order for equal names
         }
+    }
+}
+
+/// The recorder and an app-specific pause can overlap. Either one lets
+/// the foreground window receive the shortcut.
+nonisolated struct AppPause {
+    private(set) var isPaused = false
+    var recordingShortcut = false
+    var passesShortcutThrough: Bool { isPaused || recordingShortcut }
+
+    /// Switching directly between two selected apps keeps capture suspended.
+    mutating func update(frontmost: String?, selected: Set<String>) -> Bool {
+        let paused = frontmost.map(selected.contains) ?? false
+        guard paused != isPaused else { return false }
+        isPaused = paused
+        return true
     }
 }

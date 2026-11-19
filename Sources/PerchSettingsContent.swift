@@ -16,6 +16,7 @@ struct PerchSettingsContent: View {
     @AppStorage(UnpinBehavior.key) private var unpinBehavior: UnpinBehavior = .default
     @AppStorage(PinBadgeController.pinnedKey) private var badgePinned: Bool = true
     @AppStorage(PinBadgeController.focusedKey) private var badgeFocused: Bool = true
+    @AppStorage(PerchPermissionActions.askedAccessibilityKey) private var askedAccessibility = false
 
     /// Both kept current by JorvikKit — see `JorvikPermissionWatcher`. These two rows used
     /// to be read inline in `body`, so nothing ever caused them to re-render and granting
@@ -86,7 +87,14 @@ struct PerchSettingsContent: View {
         // windows, and nobody could tell what to set it to. It is still a
         // defaults setting, `captureRate` (see the README).
         Section("Perched Windows") {
-            Toggle(Self.interactionTitle, isOn: $forwardEvents)
+            Toggle(isOn: $forwardEvents) {
+                Text(Self.interactionTitle)
+                if #available(macOS 27, *) {
+                    Text("Vertical scrolling in apps that support it through Accessibility.")
+                        .font(.settingsHelp)
+                }
+            }
+            .accessibilityLabel(Self.interactionTitle)
 
             Toggle("Show perched windows on every desktop", isOn: $pinToAllSpaces)
             .onChange(of: pinToAllSpaces) { _, _ in
@@ -106,13 +114,12 @@ struct PerchSettingsContent: View {
                 if accessibility.isGranted {
                     Self.grantedLabel
                 } else {
-                    Button("Grant Access") {
-                        JorvikPermissionWatcher.promptForAccessibility()
-                    }
+                    Button(PerchPermissionActions.accessibilityButtonTitle(hasAsked: askedAccessibility),
+                           action: PerchPermissionActions.requestAccessibility)
                 }
             } label: {
                 Text("Accessibility")
-                Text("Perch needs to scroll and set window controls.")
+                Text("Perch needs to identify windows, scroll, and bring windows forward.")
                     .font(.settingsHelp)
             }
             // The Settings window is cached, so these watchers would otherwise poll for the
@@ -139,8 +146,6 @@ struct PerchSettingsContent: View {
             }
         }
 
-        // The least used: fixes for apps where the pin button lands badly.
-        BadgeOffsetSettings()
-            .disabled(!badgePinned && !badgeFocused)
+        BadgeOffsetSettings(badgeControlsEnabled: badgePinned || badgeFocused)
     }
 }

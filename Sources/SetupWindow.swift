@@ -68,7 +68,7 @@ private struct SetupView: View {
     // Whether each has been asked for before, on this Mac. macOS shows its own
     // prompt once; after that the only way to grant is in System Settings, so
     // the button takes the user there instead of appearing to do nothing.
-    @AppStorage("askedAccessibility") private var askedAccessibility = false
+    @AppStorage(PerchPermissionActions.askedAccessibilityKey) private var askedAccessibility = false
     @AppStorage("askedScreenRecording") private var askedScreenRecording = false
 
     private var allGranted: Bool { accessibility.isGranted && screenRecording.isGranted }
@@ -94,17 +94,10 @@ private struct SetupView: View {
             PermissionRow(
                 symbol: "keyboard",
                 title: "Accessibility",
-                reason: "For the keyboard shortcut, the perch buttons on windows, and bringing a window forward when you click its perched copy.",
+                reason: "To identify the window you’re using, show perch buttons, handle your shortcut, and bring a window forward.",
                 granted: accessibility.isGranted,
-                buttonTitle: askedAccessibility ? "Open System Settings" : "Allow\u{2026}",
-                action: {
-                    if askedAccessibility {
-                        JorvikPermissionWatcher.openSettings(pane: .accessibility)
-                    } else {
-                        askedAccessibility = true
-                        JorvikPermissionWatcher.promptForAccessibility()
-                    }
-                }
+                buttonTitle: PerchPermissionActions.accessibilityButtonTitle(hasAsked: askedAccessibility),
+                action: PerchPermissionActions.requestAccessibility
             )
 
             PermissionRow(

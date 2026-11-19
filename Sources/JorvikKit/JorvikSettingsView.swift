@@ -43,9 +43,12 @@ struct JorvikSettingsView<AppSettings: View>: View {
             .padding(.top, 8)
 
             HStack {
+                Button("Quit \(appName)") {
+                    NSApp.terminate(nil)
+                }
                 Spacer()
                 Button("Done") {
-                    NSApp.keyWindow?.close()
+                    JorvikSettingsWindow.current?.close()
                 }
                 .keyboardShortcut(.cancelAction)
             }

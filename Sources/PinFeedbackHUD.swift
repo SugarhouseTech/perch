@@ -14,7 +14,16 @@ enum PinFeedbackHUD {
     /// has been overtaken.
     private static var shown = 0
 
-    static func show(_ text: String, windowID: CGWindowID) {
+    static func hide() {
+        hideTask?.cancel()
+        panel?.orderOut(nil)
+    }
+
+    static func show(_ text: String, windowID: CGWindowID? = nil) {
+        show(text, over: targetFrame(windowID: windowID))
+    }
+
+    static func show(_ text: String, over frame: NSRect) {
         let label = NSTextField(labelWithString: text)
         label.font = .systemFont(ofSize: 22, weight: .semibold)
         label.textColor = .white
@@ -28,7 +37,8 @@ enum PinFeedbackHUD {
         label.frame.origin = NSPoint(x: 24, y: 14)
         box.addSubview(label)
 
-        p.setFrame(NSRect(origin: origin(for: size, over: windowID), size: size), display: true)
+        let origin = NSPoint(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2)
+        p.setFrame(NSRect(origin: origin, size: size), display: true)
         // Through the animator, so a fade still running is replaced.
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0
@@ -74,15 +84,16 @@ enum PinFeedbackHUD {
     }
 
     /// Centred over the window, or over the main screen if its frame can't be read.
-    private static func origin(for size: NSSize, over windowID: CGWindowID) -> NSPoint {
+    private static func targetFrame(windowID: CGWindowID?) -> NSRect {
         var target = NSScreen.main?.frame ?? .zero
-        if let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]])?.first,
+        if let windowID,
+           let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]])?.first,
            let b = info[kCGWindowBounds as String] as? [String: CGFloat],
            let primary = NSScreen.screens.first {
             // Window bounds are top-left based; AppKit's are bottom-left from the primary screen.
             let w = b["Width"] ?? 0, h = b["Height"] ?? 0
             target = NSRect(x: b["X"] ?? 0, y: primary.frame.height - (b["Y"] ?? 0) - h, width: w, height: h)
         }
-        return NSPoint(x: target.midX - size.width / 2, y: target.midY - size.height / 2)
+        return target
     }
 }

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Testing
 @testable import Perch
 
@@ -6,6 +7,17 @@ private let present: Bool? = true
 private let failed: Bool? = nil
 
 @Suite struct PrunePolicyTests {
+
+    @Test func restoringAPinRequiresItsOriginalWindowAndOwner() {
+        let list: [[String: Any]] = [
+            [kCGWindowNumber as String: UInt32(7), kCGWindowOwnerPID as String: Int32(20),
+             kCGWindowIsOnscreen as String: false],
+            [kCGWindowNumber as String: UInt32(8), kCGWindowOwnerPID as String: Int32(10)]
+        ]
+        #expect(WindowDetector.containsWindow(7, ownerPID: 20, in: list))
+        #expect(!WindowDetector.containsWindow(7, ownerPID: 10, in: list))
+        #expect(!WindowDetector.containsWindow(9, ownerPID: 20, in: list))
+    }
 
     /// One pass of the policy over a single pin; `quietUntil` 0 means no
     /// quiet period.
@@ -236,5 +248,91 @@ private let failed: Bool? = nil
         let pins = [pin(7, pid: 10, "Notes"), pin(5, pid: 10, "Notes")]
         #expect(PinPolicy.menuOrder(pins, frontPID: nil).map(\.windowID) == [5, 7])
         #expect(PinPolicy.menuOrder(pins.reversed(), frontPID: nil).map(\.windowID) == [5, 7])
+    }
+}
+
+@Suite struct PauseRestoreModelTests {
+    /// The model follows one saved placement across pauses and lookup failures.
+    /// A confirmed restore consumes it once. Terminating the owner forgets it.
+    @Test func allFiveEventHistories() {
+        enum Event: CaseIterable { case pause, resume, found, gone, unknown, waking, terminate }
+        enum State { case showing, waiting, forgotten }
+        struct World {
+            var state = State.showing
+            var paused = false
+            var previousMiss = false
+            var pins: Set<UInt32> = [1]
+            var pending: Set<UInt32> = []
+            var misses: Set<UInt32> = []
+        }
+        func visit(_ world: World, depth: Int) {
+            guard depth > 0 else { return }
+            for event in Event.allCases {
+                var w = world
+                switch event {
+                case .pause:
+                    w.paused = true
+                    w.pending.formUnion(w.pins)
+                    w.misses.removeAll()
+                    w.previousMiss = false
+                    if w.state == .showing { w.state = .waiting }
+                case .resume:
+                    w.paused = false
+                case .terminate:
+                    w.pins.removeAll()
+                    w.pending.removeAll()
+                    w.state = .forgotten
+                default:
+                    if !w.paused {
+                        let readable = event != .waking
+                        let exists: Bool? = event == .unknown ? nil : event == .found
+                        let outcome = PinPolicy.prune(pinned: w.pins, awaitingRestore: w.pending,
+                                                      lookups: [1: exists], missingOnce: w.misses,
+                                                      now: 1, quietUntil: readable ? 1 : 2, onConsole: true)
+                        let shouldRestore = w.state == .waiting && event == .found
+                        #expect(outcome.restore == (shouldRestore ? [1] : []))
+                        if shouldRestore { w.state = .showing }
+                        if event == .gone && w.previousMiss { w.state = .forgotten }
+                        w.previousMiss = event == .gone
+                        w.misses = outcome.missingOnce
+                        w.pins.subtract(outcome.remove)
+                        w.pending.subtract(outcome.restore.union(outcome.remove))
+                    }
+                }
+                #expect(w.pins.isEmpty == (w.state == .forgotten))
+                #expect(w.pending.isEmpty == (w.state != .waiting))
+                visit(w, depth: depth - 1)
+            }
+        }
+        visit(World(), depth: 5)
+    }
+}
+
+@Suite struct AppPauseTests {
+    @Test func everyFrontmostSelectionAndRecorderTransition() {
+        let fronts: [String?] = [nil, "game", "editor", "other"]
+        let selections: [Set<String>] = [[], ["game"], ["editor"], ["game", "editor"]]
+        for before in fronts {
+            for oldChoices in selections {
+                for after in fronts {
+                    for newChoices in selections {
+                        for recording in [true, false] {
+                            var pause = AppPause()
+                            let wasPaused = oldChoices.contains { $0 == before }
+                            let expected = newChoices.contains { $0 == after }
+                            _ = pause.update(frontmost: before, selected: oldChoices)
+                            pause.recordingShortcut = recording
+                            #expect(pause.update(frontmost: after, selected: newChoices) == (wasPaused != expected))
+                            #expect(pause.isPaused == expected)
+                            #expect(pause.passesShortcutThrough == (expected || recording))
+                            pause.recordingShortcut.toggle()
+                            #expect(pause.passesShortcutThrough == (expected || !recording))
+                            let repeated = pause.update(frontmost: after, selected: newChoices)
+                            #expect(!repeated)
+                        }
+                    }
+                }
+            }
+        }
     }
 }

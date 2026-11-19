@@ -35,6 +35,9 @@ class WindowOverlay: NSPanel {
     let targetPID: pid_t
 
     private let contentLayer = CALayer()
+    private let captureStatusView = NSView()
+    private let captureStatusLabel = NSTextField(labelWithString: "")
+    private let captureRetryButton = NSButton(title: "Retry", target: nil, action: nil)
     private var scWindow: SCWindow?
     private var stream: SCStream?
     private let sampleQueue = DispatchQueue(label: "tech.sugarhouse.Perch.frames")
@@ -42,6 +45,8 @@ class WindowOverlay: NSPanel {
     /// so ScreenCaptureKit can't recycle it out from under the layer.
     private var displayedFrame: CVPixelBuffer?
     private var frameSyncTimer: Timer?
+    private var firstFrameDeadline: Timer?
+    private var preShowDeadline: Timer?
     /// The part of the window the running stream was configured for, so a
     /// resize or a new crop can tell whether the stream needs reconfiguring.
     private var lastStreamGeometry: CGRect = .zero
@@ -73,6 +78,7 @@ class WindowOverlay: NSPanel {
     /// Set by `mouseDown(with:)` when a press on a cropped pin reaches the
     /// content, meaning AppKit did not take it as a resize.
     private var pressReachedContent = false
+    private var retryPressInProgress = false
     /// A press AppKit took (a resize) is in progress; its drags and release
     /// go to AppKit too.
     private var systemPressInProgress = false
@@ -99,10 +105,13 @@ class WindowOverlay: NSPanel {
     /// Points→pixels scale of the capture, taken from the content filter.
     private var streamPixelScale: CGFloat = 2
     private var didLogFirstFrame = false
+    /// Whether this copy has already explained the scroll fallback.
+    private var showedScrollUnavailable = false
     /// Total frames delivered by the stream (diagnostics).
     private(set) var framesReceived = 0
     /// The screenshot taken before the pin is first shown is under way.
     private var isPreparingFirstShow = false
+    private var firstShowWasPrepared = false
     /// The pin starts out of sight and should be got ready behind its window
     /// as soon as the window is found. See `prepareBehind`.
     private var wantsStaging = false
@@ -155,7 +164,16 @@ class WindowOverlay: NSPanel {
         return true
     }
 
-    init(windowID: CGWindowID, pid: pid_t) {
+    struct Placement {
+        var crop: CGRect?
+        var movedOrigin: NSPoint?
+    }
+
+    var placement: Placement { Placement(crop: crop, movedOrigin: movedOrigin) }
+
+    init(windowID: CGWindowID, pid: pid_t, placement: Placement = Placement()) {
+        crop = placement.crop
+        movedOrigin = placement.movedOrigin
         targetWindowID = windowID
         targetPID = pid
 
@@ -182,11 +200,34 @@ class WindowOverlay: NSPanel {
         // Layer-hosting view: frames land straight on the layer as IOSurfaces,
         // no NSImage conversion.
         contentLayer.contentsGravity = .resize
-        let view = NSView(frame: NSRect(origin: .zero, size: frame.size))
-        view.layer = contentLayer
-        view.wantsLayer = true
-        view.autoresizingMask = [.width, .height]
-        contentView = view
+        let container = NSView(frame: NSRect(origin: .zero, size: frame.size))
+        container.wantsLayer = true
+        let hostedContent = NSView(frame: container.bounds)
+        hostedContent.layer = contentLayer
+        hostedContent.wantsLayer = true
+        hostedContent.autoresizingMask = [.width, .height]
+        container.addSubview(hostedContent)
+        contentView = container
+
+        captureStatusView.wantsLayer = true
+        captureStatusView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.78).cgColor
+        captureStatusView.layer?.cornerRadius = 10
+        captureStatusView.isHidden = true
+        captureStatusView.frame = NSRect(x: 0, y: 0, width: 230, height: 52)
+        captureStatusView.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin, .maxYMargin]
+        captureStatusLabel.textColor = .white
+        captureStatusLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        captureStatusLabel.frame = NSRect(x: 12, y: 17, width: 145, height: 18)
+        captureRetryButton.target = self
+        captureRetryButton.action = #selector(retryCapture)
+        captureRetryButton.toolTip = "Retry capture"
+        captureRetryButton.setAccessibilityLabel("Retry capture")
+        captureRetryButton.frame = NSRect(x: 164, y: 10, width: 56, height: 32)
+        captureStatusView.addSubview(captureStatusLabel)
+        captureStatusView.addSubview(captureRetryButton)
+        container.addSubview(captureStatusView)
+        captureStatusView.setFrameOrigin(NSPoint(x: (frame.width - captureStatusView.frame.width) / 2,
+                                                 y: (frame.height - captureStatusView.frame.height) / 2))
 
         // The option-drag selection: the outside is shaded, the inside left
         // clear, with a dashed edge. Sublayers survive each frame replacing
@@ -207,11 +248,15 @@ class WindowOverlay: NSPanel {
             contentLayer.addSublayer(layer)
         }
 
+        applyWindowStyle()
+
         // Look the window up now, ready for when the pin is first shown.
         send(.created)
 
         resizeObserver = NotificationCenter.default.observeOnMain(NSWindow.didResizeNotification, object: self) { [weak self] _ in
             self?.cropFollowsResize()
+            self?.updateCaptureStatus()
+            self?.updateCaptureStatus()
         }
         occlusionObserver = NotificationCenter.default.observeOnMain(NSWindow.didChangeOcclusionStateNotification, object: self) { [weak self] _ in
             self?.occlusionChanged()
@@ -234,7 +279,12 @@ class WindowOverlay: NSPanel {
 
     /// Tell the lifecycle what happened, and do what it says.
     private func send(_ event: StreamLifecycle.Event) {
+        if event == .streamFailed || event == .streamSetupFailed || event == .firstFrameTimedOut {
+            firstFrameDeadline?.invalidate()
+            firstFrameDeadline = nil
+        }
         for effect in life.handle(event) { perform(effect) }
+        updateCaptureStatus()
     }
 
     private func perform(_ effect: StreamLifecycle.Effect) {
@@ -262,6 +312,76 @@ class WindowOverlay: NSPanel {
         }
     }
 
+    private func updateCaptureStatus() {
+        let state = life.captureState
+        guard life.pinVisible, !life.outOfSight,
+              state == .starting || state == .reconnecting || state == .stopped else {
+            captureStatusView.isHidden = true
+            return
+        }
+        let width = min(230, max(14, frame.width - 8))
+        let height = min(52, max(14, frame.height - 8))
+        captureStatusView.setFrameSize(NSSize(width: width, height: height))
+        captureStatusView.setFrameOrigin(NSPoint(x: (frame.width - width) / 2,
+                                                 y: (frame.height - height) / 2))
+        let compact = width < 180 || height < 42
+        captureStatusLabel.isHidden = compact
+        captureRetryButton.title = compact ? "↻" : "Retry"
+        if compact {
+            captureRetryButton.frame = captureStatusView.bounds.insetBy(dx: 1, dy: 1)
+        } else {
+            captureRetryButton.frame = NSRect(x: width - 66, y: 10, width: 56, height: 32)
+            captureStatusLabel.frame = NSRect(x: 12, y: 17, width: width - 90, height: 18)
+        }
+        switch state {
+        case .starting:
+            captureStatusLabel.stringValue = "Starting capture…"
+            captureRetryButton.isHidden = true
+            captureStatusView.isHidden = compact
+        case .reconnecting:
+            captureStatusLabel.stringValue = "Reconnecting…"
+            captureRetryButton.isHidden = true
+            captureStatusView.isHidden = compact
+        case .stopped:
+            captureStatusLabel.stringValue = "Capture stopped"
+            captureRetryButton.isHidden = false
+            captureStatusView.isHidden = false
+        case .idle, .live, .paused:
+            captureStatusView.isHidden = true
+        }
+    }
+
+    @objc private func retryCapture() {
+        guard life.captureState == .stopped, life.pinVisible, !life.outOfSight else { return }
+        scWindow = nil
+        send(.retryRequested)
+    }
+
+    func isCaptureRetryEvent(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .leftMouseDown:
+            retryPressInProgress = false
+            if event.modifierFlags.contains(.option) || event.modifierFlags.contains(.command) {
+                return false
+            }
+            retryPressInProgress = isRetryButtonHit(event)
+            return retryPressInProgress
+        case .leftMouseDragged:
+            return retryPressInProgress
+        case .leftMouseUp:
+            defer { retryPressInProgress = false }
+            return retryPressInProgress
+        default:
+            return false
+        }
+    }
+
+    private func isRetryButtonHit(_ event: NSEvent) -> Bool {
+        let point = captureRetryButton.convert(event.locationInWindow, from: nil)
+        return !captureStatusView.isHidden && !captureRetryButton.isHidden
+            && captureRetryButton.bounds.contains(point)
+    }
+
     // MARK: - ScreenCaptureKit window resolution
 
     /// Look the window up in ScreenCaptureKit's list. One at a time; the
@@ -276,9 +396,10 @@ class WindowOverlay: NSPanel {
             } catch {
                 result = .failure(error)
             }
+            guard !isRemoved else { return }
             switch result {
             case .success(let content):
-                if let match = content.windows.first(where: { $0.windowID == targetWindowID }) {
+                if let match = content.windows.first(where: { $0.windowID == targetWindowID && $0.owningApplication?.processID == targetPID }) {
                     self.scWindow = match
                     wplog("overlay: resolved SCWindow for wid=\(targetWindowID) title='\(match.title ?? "")'")
                     self.stageBehindIfReady()
@@ -342,13 +463,24 @@ class WindowOverlay: NSPanel {
     }
 
     override func sendEvent(_ event: NSEvent) {
+        if isCaptureRetryEvent(event) {
+            super.sendEvent(event)
+            return
+        }
         if isPinVisible, handleCropGesture(event) { return }
 
         if event.type == .scrollWheel, isPinVisible, usesAccessibilityScrolling {
             if let point = targetPoint(forLocation: event.locationInWindow) {
+                let showHint: @MainActor @Sendable () -> Void = { [weak self] in
+                    guard let self, self.isPinVisible, !self.isRemoved, self.occlusionState.contains(.visible),
+                          self.usesAccessibilityScrolling, !self.showedScrollUnavailable else { return }
+                    self.showedScrollUnavailable = true
+                    PinFeedbackHUD.show("Can’t scroll here. Click to open.", over: self.frame)
+                }
                 AXScroller.scroll(pid: targetPID, windowID: targetWindowID,
                                   deltaY: event.scrollingDeltaY,
-                                  precise: event.hasPreciseScrollingDeltas, at: point)
+                                  precise: event.hasPreciseScrollingDeltas, at: point,
+                                  onUnavailable: showedScrollUnavailable ? nil : showHint)
             }
             return
         }
@@ -570,6 +702,7 @@ class WindowOverlay: NSPanel {
         applyWindowStyle()
         applyingFrame = false
         syncFrameWithTarget()
+        updateCaptureStatus()
         onCropChange?()
     }
 
@@ -760,12 +893,16 @@ class WindowOverlay: NSPanel {
                                           onScreen: isVisible, hidden: !occlusionState.contains(.visible)))
         if effects.contains(.startStream) { wplog("overlay: reviving stream wid=\(targetWindowID)") }
         effects.forEach(perform)
+        updateCaptureStatus()
     }
 
     /// Fully remove overlay from screen (used when unpinning / cleaning up).
     func hideOverlay() {
         wplog("overlay: hideOverlay wid=\(targetWindowID)")
         wantsStaging = false
+        isPreparingFirstShow = false
+        preShowDeadline?.invalidate()
+        preShowDeadline = nil
         send(.removed)
         AXScroller.forget(windowID: targetWindowID)
         cancelGesture()
@@ -798,39 +935,56 @@ class WindowOverlay: NSPanel {
         guard wantsStaging, !isRemoved, !isVisible, !isPinVisible, !isPreparingFirstShow,
               let scWindow else { return }
         wantsStaging = false
+        beginPreShowCapture(scWindow)
+    }
+
+    private func beginPreShowCapture(_ scWindow: SCWindow) {
         isPreparingFirstShow = true
         syncFrameWithTarget()
-        Task { @MainActor in
-            await self.captureFirstFrame(scWindow)
-            self.isPreparingFirstShow = false
-            guard !self.isRemoved, !self.isVisible else { return }
-            // Switched away while the screenshot was being taken: come up now.
-            if self.isPinVisible {
-                self.fadeIn()
-                return
+        preShowDeadline?.invalidate()
+        preShowDeadline = Timer.onMain(every: 1, repeats: false) { [weak self] in
+            self?.finishPreShowCapture(image: nil)
+        }
+        let filter = SCContentFilter(desktopIndependentWindow: scWindow)
+        let config = makeStreamConfig(pixelScale: CGFloat(filter.pointPixelScale))
+        let windowID = targetWindowID
+        Task { @MainActor [weak self] in
+            do {
+                let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+                self?.finishPreShowCapture(image: image)
+            } catch {
+                wplog("overlay: pre-show capture failed wid=\(windowID): \(error)")
+                self?.finishPreShowCapture(image: nil)
             }
-            self.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.normalWindow)) - 1)
-            self.setShown(false)
-            self.orderBack(nil)
-            wplog("overlay: ready behind wid=\(self.targetWindowID)")
         }
     }
 
-    /// One screenshot of the window, so the pin has content before the stream
-    /// delivers its first frame.
-    private func captureFirstFrame(_ scWindow: SCWindow) async {
-        let filter = SCContentFilter(desktopIndependentWindow: scWindow)
-        let config = makeStreamConfig(pixelScale: CGFloat(filter.pointPixelScale))
-        do {
-            contentLayer.contents = try await SCScreenshotManager.captureImage(
-                contentFilter: filter, configuration: config
-            )
-        } catch {
-            wplog("overlay: pre-show capture failed wid=\(targetWindowID): \(error)")
+    private func finishPreShowCapture(image: CGImage?) {
+        guard isPreparingFirstShow else { return }
+        isPreparingFirstShow = false
+        preShowDeadline?.invalidate()
+        preShowDeadline = nil
+        guard !isRemoved, !isVisible else { return }
+        firstShowWasPrepared = true
+        // A late one-shot screenshot must not replace a live stream frame.
+        if let image, life.captureState != .live {
+            contentLayer.contents = image
         }
+        if isPinVisible {
+            fadeIn()
+            return
+        }
+        level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.normalWindow)) - 1)
+        setShown(false)
+        orderBack(nil)
+        wplog("overlay: ready behind wid=\(targetWindowID)")
     }
 
     private func doInitialShow() {
+        if firstShowWasPrepared {
+            fadeIn()
+            return
+        }
         guard let scWindow = self.scWindow else {
             // SCWindow not resolved yet — show immediately, stream will fill in
             fadeIn()
@@ -839,18 +993,10 @@ class WindowOverlay: NSPanel {
         // Going behind and coming back while the screenshot is being taken
         // must not take a second one and fade in twice.
         guard !isPreparingFirstShow else { return }
-        isPreparingFirstShow = true
 
         // Grab one screenshot BEFORE showing so the first visible frame has
         // content — the stream takes a beat to deliver its first frame.
-        Task { @MainActor in
-            await self.captureFirstFrame(scWindow)
-            self.isPreparingFirstShow = false
-            // The pin may have been sent behind or unpinned while the
-            // screenshot was being taken; it must stay that way.
-            guard self.isPinVisible, !self.isVisible, !self.isRemoved else { return }
-            self.fadeIn()
-        }
+        beginPreShowCapture(scWindow)
     }
 
     private func fadeIn() {
@@ -897,6 +1043,11 @@ class WindowOverlay: NSPanel {
             return
         }
         stream = newStream
+        wplog("overlay: stream starting wid=\(targetWindowID) maxFPS=\(Self.captureRate)")
+        firstFrameDeadline?.invalidate()
+        firstFrameDeadline = Timer.onMain(every: 8, repeats: false) { [weak self] in
+            self?.send(.firstFrameTimedOut)
+        }
         Task { [weak self] in
             do {
                 try await newStream.startCapture()
@@ -912,10 +1063,11 @@ class WindowOverlay: NSPanel {
                 self.send(.streamFailed)
             }
         }
-        wplog("overlay: stream starting wid=\(targetWindowID) maxFPS=\(Self.captureRate)")
     }
 
     private func stopStream() {
+        firstFrameDeadline?.invalidate()
+        firstFrameDeadline = nil
         reconfigureTimer?.invalidate()
         reconfigureTimer = nil
         guard let stream = stream else { return }
@@ -1050,6 +1202,7 @@ class WindowOverlay: NSPanel {
             applyingFrame = true
             setFrame(wanted, display: false)
             applyingFrame = false
+            updateCaptureStatus()
         }
         lastPanelFrame = frame
         // Window resized or crop changed → the stream's output size and the
@@ -1166,11 +1319,20 @@ extension WindowOverlay: SCStreamOutput, SCStreamDelegate {
                 self.displayedFrame = pixelBuffer
                 self.contentLayer.contents = surfaceRef
                 CATransaction.commit()
+                self.acceptFirstFrameIfNeeded()
                 return
             }
             self.displayedFrame = pixelBuffer
             self.contentLayer.contents = surfaceRef
+            self.acceptFirstFrameIfNeeded()
         }
+    }
+
+    private func acceptFirstFrameIfNeeded() {
+        guard firstFrameDeadline != nil else { return }
+        firstFrameDeadline?.invalidate()
+        firstFrameDeadline = nil
+        send(.frameReceived)
     }
 
     nonisolated func stream(_ stream: SCStream, didStopWithError error: any Error) {

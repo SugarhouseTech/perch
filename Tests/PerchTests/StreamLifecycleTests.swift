@@ -111,6 +111,48 @@ private func showingPin() -> L {
             lookups += 1
         }
         #expect(lookups == L.maxRestarts)
+        #expect(life.captureState == .stopped)
+    }
+
+    @Test func firstFrameTimeoutRetriesAndACompleteFrameClearsStartingState() {
+        var life = knownPin()
+        #expect(life.handle(.broughtToFront(onScreen: true)) == [.syncFrame, .startStream, .startFrameSync])
+        #expect(life.captureState == .starting)
+        #expect(life.handle(.firstFrameTimedOut) == [.stopStream, .scheduleRetry])
+        #expect(life.captureState == .reconnecting)
+        #expect(life.handle(.retryFired) == [.resolveWindow])
+        #expect(life.handle(.resolved(found: true)) == [.startStream])
+        #expect(life.handle(.frameReceived) == [])
+        #expect(life.captureState == .live)
+        #expect(life.handle(.firstFrameTimedOut) == [], "a healthy static window stays live")
+    }
+
+    @Test func aQuickAppSwitchKeepsFirstFrameStatusWithoutRestartingCapture() {
+        var life = showingPin()
+        #expect(life.captureState == .starting)
+        _ = life.handle(.sentBehind)
+        #expect(life.handle(.broughtToFront(onScreen: true)) == [.cancelBehindStop, .syncFrame, .startFrameSync])
+        #expect(life.captureState == .starting)
+        _ = life.handle(.frameReceived)
+        _ = life.handle(.sentBehind)
+        _ = life.handle(.broughtToFront(onScreen: true))
+        #expect(life.captureState == .live)
+        #expect(life.handle(.retryRequested) == [], "a late retry click cannot disturb live capture")
+    }
+
+    @Test func stoppedCaptureCanBeRetriedByTheUser() {
+        var life = showingPin()
+        for _ in 0..<L.maxRestarts {
+            _ = life.handle(.streamFailed)
+            _ = life.handle(.retryFired)
+            _ = life.handle(.resolved(found: true))
+        }
+        #expect(life.handle(.streamFailed) == [.gaveUp])
+        #expect(life.captureState == .stopped)
+        #expect(life.handle(.retryRequested) == [.resolveWindow])
+        #expect(life.captureState == .starting)
+        #expect(life.restarts == 0)
+        #expect(life.handle(.resolved(found: true)) == [.startStream])
     }
 
     @Test func aReviveGivesAFreshSetOfRetries() {
@@ -205,8 +247,9 @@ private func showingPin() -> L {
     @Test func aStreamThatCouldNotBeSetUpIsNotCountedAsRunning() {
         var life = knownPin()
         _ = life.handle(.broughtToFront(onScreen: true))
-        _ = life.handle(.streamSetupFailed)
+        #expect(life.handle(.streamSetupFailed) == [.scheduleRetry])
         #expect(!life.streamRunning)
+        #expect(life.captureState == .reconnecting)
         #expect(life.handle(.occlusion(hidden: true)) == [.stopStream, .stopFrameSync])
         #expect(life.handle(.occlusion(hidden: false)) == [.syncFrame, .startStream, .startFrameSync])
     }
@@ -355,5 +398,74 @@ private func showingPin() -> L {
             #expect((w.life.pinVisible && !w.life.outOfSight) || w.behindPending,
                     "filming for nobody, \(context)")
         }
+    }
+}
+
+/// Exhaustively checks short event histories around every state transition.
+/// The vocabulary includes late callbacks and stale timers, so ordering bugs
+/// show up without depending on a random seed or real ScreenCaptureKit.
+@Suite struct StreamLifecycleBoundedModelTests {
+
+    private static let events: [L.Event] = [
+        .broughtToFront(onScreen: false),
+        .broughtToFront(onScreen: true),
+        .fadedIn,
+        .sentBehind,
+        .behindGraceElapsed,
+        .occlusion(hidden: true),
+        .occlusion(hidden: false),
+        .resolved(found: true),
+        .resolved(found: false),
+        .resolveFailed(denied: false),
+        .resolveFailed(denied: true),
+        .streamFailed,
+        .retryFired,
+        .streamSetupFailed,
+        .revive(force: true, now: 100, onScreen: true, hidden: false),
+        .removed
+    ]
+
+    @Test func everyHistoryUpToFourEventsPreservesLifecycleInvariants() {
+        let maximumDepth = 4
+        var histories = 0
+
+        func visit(_ life: L, _ depth: Int, _ history: [L.Event], gracePending: Bool) {
+            // A hidden stream may finish its three-second grace after going
+            // behind. App-specific pause removes the overlay even during grace.
+            if life.streamRunning {
+                #expect((life.pinVisible && !life.outOfSight) || gracePending, "unexpected capture: \(history)")
+            }
+            if depth == maximumDepth { return }
+
+            for event in Self.events {
+                var next = life
+                let effects = next.handle(event)
+                #expect(next.restarts <= L.maxRestarts, "restart bound exceeded: \(history + [event])")
+                if next.removed {
+                    #expect(!next.streamRunning, "removed pin kept streaming: \(history + [event])")
+                    #expect(effects.allSatisfy { $0 != .startStream && $0 != .resolveWindow },
+                            "removed pin restarted work: \(history + [event])")
+                }
+                if effects.contains(.startStream) {
+                    #expect(!life.streamRunning, "started a second stream: \(history + [event])")
+                    #expect(!next.outOfSight, "started while hidden: \(history + [event])")
+                }
+                histories += 1
+                var grace = gracePending && event != .behindGraceElapsed
+                if effects.contains(.scheduleBehindStop) { grace = true }
+                if effects.contains(.cancelBehindStop) { grace = false }
+                if life.removed { #expect(effects.isEmpty, "callback after teardown: \(event)") }
+                visit(next, depth + 1, history + [event], gracePending: grace)
+            }
+        }
+
+        visit(knownPin(), 0, [], gracePending: false)
+        var expectedHistories = 0
+        var atDepth = Self.events.count
+        for _ in 1...maximumDepth {
+            expectedHistories += atDepth
+            atDepth *= Self.events.count
+        }
+        #expect(histories == expectedHistories)
     }
 }

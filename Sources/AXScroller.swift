@@ -150,7 +150,8 @@ nonisolated enum AXScroller {
     /// - Parameter precise: whether `deltaY` is in points, as from a trackpad,
     ///   rather than in lines, as from a wheel mouse.
     static func scroll(pid: pid_t, windowID: CGWindowID, deltaY rawDeltaY: CGFloat,
-                       precise: Bool, at point: CGPoint) {
+                       precise: Bool, at point: CGPoint,
+                       onUnavailable: (@MainActor @Sendable () -> Void)? = nil) {
         // A wheel reports lines, about one per notch, where a trackpad
         // reports points, so a wheel crawled at a tenth of the speed. Ten
         // points is the line AppKit's own scroll views use.
@@ -163,6 +164,7 @@ nonisolated enum AXScroller {
         // the queue is busy are added up and applied together, once.
         queue.async {
             onQueue()
+            unavailableHandlers[windowID] = onUnavailable
             let folded = ScrollMath.accumulate(queued: pending[windowID], pid: pid,
                                                deltaY: deltaY, point: point)
             pending[windowID] = folded.pending
@@ -172,11 +174,21 @@ nonisolated enum AXScroller {
 
     /// Scrolling not yet applied, per window. Touched only on `queue`.
     nonisolated(unsafe) private static var pending: [CGWindowID: ScrollMath.Pending] = [:]
+    /// The pending gesture's callback, accessed only on `queue`.
+    nonisolated(unsafe) private static var unavailableHandlers: [CGWindowID: @MainActor @Sendable () -> Void] = [:]
 
     private static func drain(windowID: CGWindowID) {
         onQueue()
+        let onUnavailable = unavailableHandlers.removeValue(forKey: windowID)
         guard let next = pending.removeValue(forKey: windowID),
-              let bar = barUnder(next.point, pid: next.pid, windowID: windowID) else { return }
+              let areas = resolveAreas(pid: next.pid, windowID: windowID) else { return }
+        guard !areas.isEmpty else {
+            if let onUnavailable { Task { @MainActor in onUnavailable() } }
+            return
+        }
+        // Scroll areas nest. Use the innermost one under the pointer.
+        guard let index = ScrollMath.innermostIndex(of: areas.map(\.frame), containing: next.point) else { return }
+        let bar = areas[index].bar
         guard let current = copyDouble(bar, kAXValueAttribute) else {
             cache[windowID] = nil
             return
@@ -190,16 +202,6 @@ nonisolated enum AXScroller {
             wplog("axscroll: set failed err=\(err.rawValue), dropping the cached bar")
             cache[windowID] = nil
         }
-    }
-
-    /// The scroll bar for the area under `point`, preferring the SMALLEST area
-    /// that contains it. Scroll areas nest, and the innermost one is the one the
-    /// user is pointing at; the outermost is usually the whole window.
-    private static func barUnder(_ point: CGPoint, pid: pid_t, windowID: CGWindowID) -> AXUIElement? {
-        guard let areas = resolveAreas(pid: pid, windowID: windowID), !areas.isEmpty else { return nil }
-        // Nil when the pointer is outside every area: do nothing rather than
-        // scroll something the user is not pointing at.
-        return ScrollMath.innermostIndex(of: areas.map(\.frame), containing: point).map { areas[$0].bar }
     }
 
     private static func resolveAreas(pid: pid_t, windowID: CGWindowID) -> [Area]? {
@@ -232,7 +234,7 @@ nonisolated enum AXScroller {
             // was repeated for every scroll event over such a window.
             cache[windowID] = Resolved(areas: [], at: Date())
             wplog("axscroll: no settable scroll bar in wid=\(windowID); scrolling unavailable here")
-            return nil
+            return resolved
         }
         cache[windowID] = Resolved(areas: resolved, at: Date())
         // Only when the answer changes. The cache ages out every few seconds, so
@@ -262,7 +264,12 @@ nonisolated enum AXScroller {
 
     /// Forget a window's cached element when it is unpinned.
     static func forget(windowID: CGWindowID) {
-        queue.async { cache[windowID] = nil; pending[windowID] = nil }
+        queue.async {
+            cache[windowID] = nil
+            pending[windowID] = nil
+            unavailableHandlers[windowID] = nil
+            lastLoggedShape[windowID] = nil
+        }
     }
 
     // MARK: - Tree walking

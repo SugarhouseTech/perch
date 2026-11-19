@@ -26,6 +26,8 @@ nonisolated enum BadgeOffsets {
     /// Apps Perch leaves alone: no perch buttons on their windows, and their
     /// windows cannot be perched. One already perched can still be unperched.
     static let ignoredKey = "ignoredApps"
+    /// Apps that temporarily suspend Perch while they are frontmost.
+    static let pauseAppsKey = "pauseApps"
 
     /// Where the automatic placement last put the button in each app, so an
     /// app added in Settings starts from there rather than from the corner.
@@ -97,6 +99,17 @@ nonisolated enum BadgeOffsets {
         defaults.set(ids.sorted(), forKey: ignoredKey)
     }
 
+    static func pauseApps(in defaults: UserDefaults = .standard) -> Set<String> {
+        Set(defaults.stringArray(forKey: pauseAppsKey) ?? [])
+    }
+
+    static func setPauseApp(_ on: Bool, for bundleID: String, in defaults: UserDefaults = .standard) {
+        var ids = pauseApps(in: defaults)
+        guard ids.contains(bundleID) != on else { return }
+        if on { ids.insert(bundleID) } else { ids.remove(bundleID) }
+        defaults.set(ids.sorted(), forKey: pauseAppsKey)
+    }
+
     /// A distance dragged or typed in Settings: whole points, within the range.
     /// The slider and the number beside it both go through this, so they
     /// always agree.
@@ -117,6 +130,7 @@ nonisolated enum BadgeOffsets {
     static func remove(_ bundleID: String, in defaults: UserDefaults = .standard) {
         setOnlyWhenPinned(false, for: bundleID, in: defaults)
         setIgnored(false, for: bundleID, in: defaults)
+        setPauseApp(false, for: bundleID, in: defaults)
         var own = own(in: defaults)
         if own.removeValue(forKey: bundleID) != nil { defaults.set(own, forKey: key) }
         if builtIn[bundleID] != nil {

@@ -29,27 +29,23 @@ enum WindowDetector {
         let myPID = ProcessInfo.processInfo.processIdentifier
         guard frontApp.processIdentifier != myPID else { return nil }
 
-        // Step 1: Get focused window title via Accessibility API
+        // AX calls run on the main thread. Keep the timeout short for hung apps.
         let axApp = AXUIElementCreateApplication(frontApp.processIdentifier)
-        // On the main thread: a hung app gets a quarter of a second, not the
-        // global second.
         AXUIElementSetMessagingTimeout(axApp, 0.25)
         var axWindowRef: AnyObject?
-        let axResult = AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &axWindowRef)
+        guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &axWindowRef) == .success,
+              let axWindow = WindowLevelManager.element(from: axWindowRef) else { return nil }
 
+        AXUIElementSetMessagingTimeout(axWindow, 0.25)
+        let axWindowID = WindowLevelManager.windowID(of: axWindow)
         var axTitle: String?
         var axBounds: CGRect?
-        var axWindowID: CGWindowID?
-
-        if axResult == .success, let axWindow = WindowLevelManager.element(from: axWindowRef) {
-            AXUIElementSetMessagingTimeout(axWindow, 0.25)
-            axWindowID = WindowLevelManager.windowID(of: axWindow)
-            // Get title
+        // If AX named an exact window, a different window is never a substitute.
+        if axWindowID == nil {
             var titleRef: AnyObject?
             if AXUIElementCopyAttributeValue(axWindow, kAXTitleAttribute as CFString, &titleRef) == .success {
                 axTitle = titleRef as? String
             }
-            // Get position + size for fallback matching
             var posRef: AnyObject?
             var sizeRef: AnyObject?
             if AXUIElementCopyAttributeValue(axWindow, kAXPositionAttribute as CFString, &posRef) == .success,
@@ -60,111 +56,57 @@ enum WindowDetector {
             }
         }
 
-        // Step 2: Enumerate on-screen windows and match by PID + title (or bounds)
-        guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
-            return nil
-        }
-
-        let targetPID = frontApp.processIdentifier
-        let appName = frontApp.localizedName ?? "Unknown"
-
-        // The focused window's own number, when the app gives it. Titles are
-        // not unique (two Terminal windows both called "zsh") and read as
-        // empty without Screen Recording, so the matches below are fallbacks.
-        if let focusedID = axWindowID {
-            for entry in windowList {
-                guard let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
-                      pid == targetPID,
-                      let wid = entry[kCGWindowNumber as String] as? UInt32,
-                      wid == focusedID,
-                      let layer = entry[kCGWindowLayer as String] as? Int,
-                      layer == 0 else { continue }
-
-                let name = entry[kCGWindowName as String] as? String ?? ""
-                return ForeignWindow(windowID: wid, ownerPID: pid, ownerName: appName, windowTitle: name)
-            }
-        }
-
-        // Then exact PID + title match
-        if let title = axTitle, !title.isEmpty {
-            for entry in windowList {
-                guard let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
-                      pid == targetPID,
-                      let wid = entry[kCGWindowNumber as String] as? UInt32,
-                      let layer = entry[kCGWindowLayer as String] as? Int,
-                      layer == 0 else { continue }
-
-                let name = entry[kCGWindowName as String] as? String ?? ""
-                if name == title {
-                    return ForeignWindow(windowID: wid, ownerPID: pid, ownerName: appName, windowTitle: name)
-                }
-            }
-        }
-
-        // Fallback: match by PID + bounds
-        if let bounds = axBounds {
-            for entry in windowList {
-                guard let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
-                      pid == targetPID,
-                      let wid = entry[kCGWindowNumber as String] as? UInt32,
-                      let layer = entry[kCGWindowLayer as String] as? Int,
-                      layer == 0,
-                      let boundsDict = entry[kCGWindowBounds as String] as? [String: CGFloat] else { continue }
-
-                let entryBounds = CGRect(
-                    x: boundsDict["X"] ?? 0,
-                    y: boundsDict["Y"] ?? 0,
-                    width: boundsDict["Width"] ?? 0,
-                    height: boundsDict["Height"] ?? 0
-                )
-                if abs(entryBounds.origin.x - bounds.origin.x) < 2 &&
-                   abs(entryBounds.origin.y - bounds.origin.y) < 2 &&
-                   abs(entryBounds.width - bounds.width) < 2 &&
-                   abs(entryBounds.height - bounds.height) < 2 {
-                    let name = entry[kCGWindowName as String] as? String ?? ""
-                    return ForeignWindow(windowID: wid, ownerPID: pid, ownerName: appName, windowTitle: name)
-                }
-            }
-        }
-
-        // Last resort: first layer-0 window for this PID
-        for entry in windowList {
-            guard let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
-                  pid == targetPID,
-                  let wid = entry[kCGWindowNumber as String] as? UInt32,
-                  let layer = entry[kCGWindowLayer as String] as? Int,
-                  layer == 0 else { continue }
-
-            let name = entry[kCGWindowName as String] as? String ?? ""
-            return ForeignWindow(windowID: wid, ownerPID: pid, ownerName: appName, windowTitle: name)
-        }
-
-        return nil
-    }
-
-    /// The IDs of every window that still exists, on screen or not: minimised,
-    /// on another Space, or ordered out by its app all count. A pin goes when
-    /// its window is destroyed, not when it is merely out of sight.
-    /// Whether a window still exists, on screen or not, or nil if the window
-    /// server would not say. Asks about the one window, not every window.
-    static func windowExists(_ windowID: UInt32) -> Bool? {
-        guard let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(windowID))
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
                 as? [[String: Any]] else { return nil }
-        return list.contains { ($0[kCGWindowNumber as String] as? UInt32) == windowID }
+        return matchFocusedWindow(id: axWindowID, title: axTitle, bounds: axBounds,
+                                  ownerPID: frontApp.processIdentifier, ownerName: frontApp.localizedName ?? "Unknown",
+                                  in: list)
     }
 
-    static func allWindowIDs() -> Set<UInt32> {
-        guard let windowList = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
-            return []
+    nonisolated static func matchFocusedWindow(id: CGWindowID?, title: String?, bounds: CGRect?,
+                                               ownerPID: pid_t, ownerName: String,
+                                               in list: [[String: Any]]) -> ForeignWindow? {
+        let candidates: [(window: ForeignWindow, bounds: CGRect?)] = list.compactMap { entry in
+            guard entry[kCGWindowOwnerPID as String] as? pid_t == ownerPID,
+                  entry[kCGWindowLayer as String] as? Int == 0,
+                  let windowID = entry[kCGWindowNumber as String] as? CGWindowID,
+                  id == nil || windowID == id else { return nil }
+            let name = entry[kCGWindowName as String] as? String ?? ""
+            let rect = (entry[kCGWindowBounds as String] as? NSDictionary)
+                .flatMap { CGRect(dictionaryRepresentation: $0 as CFDictionary) }
+            return (ForeignWindow(windowID: windowID, ownerPID: ownerPID, ownerName: ownerName, windowTitle: name), rect)
         }
-        var ids = Set<UInt32>()
-        for entry in windowList {
-            if let wid = entry[kCGWindowNumber as String] as? UInt32,
-               let layer = entry[kCGWindowLayer as String] as? Int,
-               layer >= 0 {
-                ids.insert(wid)
-            }
+        if id != nil { return candidates.first?.window }
+
+        let titleMatches = candidates.filter { !$0.window.windowTitle.isEmpty && $0.window.windowTitle == title }
+        guard let bounds else { return titleMatches.count == 1 ? titleMatches.first?.window : nil }
+
+        // Geometry can distinguish duplicate titles. When it disagrees with
+        // a title match, wait for the next request instead of picking a side.
+        let matches = (titleMatches.isEmpty ? candidates : titleMatches).filter {
+            guard let rect = $0.bounds else { return false }
+            return abs(rect.minX - bounds.minX) < 2 && abs(rect.minY - bounds.minY) < 2
+                && abs(rect.width - bounds.width) < 2 && abs(rect.height - bounds.height) < 2
         }
-        return ids
+        return matches.count == 1 ? matches.first?.window : nil
     }
+
+    /// Minimized windows can still be in the all-windows inventory when an
+    /// individual lookup returns nothing. Use the same inventory for every pin
+    /// in a pruning pass so absence means the same thing for all of them.
+    static func windowInventory() -> [[String: Any]]? {
+        CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
+    }
+
+    static func windowExists(_ windowID: UInt32, ownerPID: pid_t) -> Bool? {
+        windowInventory().map { containsWindow(windowID, ownerPID: ownerPID, in: $0) }
+    }
+
+    nonisolated static func containsWindow(_ windowID: UInt32, ownerPID: pid_t, in list: [[String: Any]]) -> Bool {
+        list.contains {
+            ($0[kCGWindowNumber as String] as? UInt32) == windowID
+                && ($0[kCGWindowOwnerPID as String] as? pid_t) == ownerPID
+        }
+    }
+
 }

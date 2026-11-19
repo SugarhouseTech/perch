@@ -64,6 +64,7 @@ final class PinBadgeController {
     /// Accessibility notifications from the active app.
     private var appObserver: AXObserver?
     private var observedPID: pid_t = 0
+    private var isPaused = false
     /// An app that would not take notifications is asked again only now and then.
     private var refusals = RefusalBackoff()
     // An app can report a moved or resized window dozens of times a second,
@@ -109,6 +110,26 @@ final class PinBadgeController {
         center.observeOnMain(name) { [weak self] _ in self?.refresh() }
     }
 
+    /// Hide every badge while an app-specific pause is active.
+    func setPaused(_ paused: Bool) {
+        guard paused != isPaused else { return }
+        isPaused = paused
+        guard paused else {
+            refresh()
+            return
+        }
+
+        schedule = BadgeSchedule()
+        followTimer?.invalidate()
+        followTimer = nil
+        pinnedTimer?.invalidate()
+        pinnedTimer = nil
+        stopObservingApp()
+        focusedWindow = nil
+        for badge in pinnedBadges.values { badge.orderOut(nil) }
+        focusedBadge.orderOut(nil)
+    }
+
     // MARK: - Update
 
     /// Bring the badges up to date now, and follow closely for the next
@@ -119,6 +140,7 @@ final class PinBadgeController {
     ///   is followed only while the button is held. If the click did move a
     ///   window, the app says so, and that report is followed as usual.
     func refresh(following: Bool = true) {
+        guard !isPaused else { return }
         let decision = schedule.refresh(following: following, buttonHeld: NSEvent.pressedMouseButtons != 0, now: now)
         if decision.startsTimer { startFollowingTimer() }
         // A put-off refresh is part of a burst: the next follow tick picks it up.
@@ -132,7 +154,10 @@ final class PinBadgeController {
 
         let anyPinned = Self.showsPinned && !tracker.pinnedWindows.isEmpty
         if anyPinned, pinnedTimer == nil {
-            let t = Timer.onMainUnscheduled(every: 0.5, repeats: true) { [weak self] in self?.update(restack: false) }
+            let t = Timer.onMainUnscheduled(every: 0.5, repeats: true) { [weak self] in
+                guard let self, !self.isPaused else { return }
+                self.update(restack: false)
+            }
             t.tolerance = 0.1
             RunLoop.main.add(t, forMode: .common)
             pinnedTimer = t
@@ -151,6 +176,11 @@ final class PinBadgeController {
     }
 
     private func follow() {
+        guard !isPaused else {
+            followTimer?.invalidate()
+            followTimer = nil
+            return
+        }
         switch schedule.tick(now: now, buttonHeld: NSEvent.pressedMouseButtons != 0) {
         case .stop:
             followTimer?.invalidate()
@@ -240,7 +270,7 @@ final class PinBadgeController {
         guard registered else {
             if refusals.refused(pid: pid, now: now) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + RefusalBackoff.retryDelay) { [weak self] in
-                    guard let self, self.observedPID == 0,
+                    guard let self, !self.isPaused, self.observedPID == 0,
                           NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
                     self.refresh(following: false)
                 }
@@ -262,7 +292,7 @@ final class PinBadgeController {
 
     private func updatePinnedBadges(restack: Bool) {
         let pinned = (Self.showsPinned ? tracker.pinnedWindows : [])
-            .filter { ignoredApps.isEmpty || !ignoredApps.contains(slots.bundleID(of: $0.ownerPID)) }
+            .filter { tracker.overlay(for: $0.windowID) != nil && (ignoredApps.isEmpty || !ignoredApps.contains(slots.bundleID(of: $0.ownerPID))) }
         let ids = Set(pinned.map(\.windowID))
         for (id, badge) in pinnedBadges where !ids.contains(id) {
             badge.orderOut(nil)
