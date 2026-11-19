@@ -34,19 +34,34 @@ final class Licensing: ObservableObject {
     private let firstLaunch: Date
     /// Read from the Keychain once; every menu opening asks for the state.
     @Published private(set) var activation: LicenseActivation?
+    /// The Keychain couldn't be read (locked, or access refused) rather than
+    /// having no licence in it. Until a read succeeds, Perch neither nags nor
+    /// blocks: a buyer must never look unlicensed, and be tempted to spend
+    /// another of the key's Macs, because of a Keychain hiccup.
+    private var keychainUnreadable = false
 
     private init() {
         firstLaunch = Self.loadFirstLaunch()
-        activation = Keychain.read()
+        loadActivation()
+    }
+
+    private func loadActivation() {
+        switch Keychain.read() {
+        case .found(let stored): (activation, keychainUnreadable) = (stored, false)
+        case .none: (activation, keychainUnreadable) = (nil, false)
+        case .unreadable: keychainUnreadable = true
+        }
     }
 
     var state: LicenseState {
-        LicensePolicy.state(firstLaunch: firstLaunch, now: Date(), activation: activation)
+        if keychainUnreadable { loadActivation() }
+        if keychainUnreadable { return .licensed }
+        return LicensePolicy.state(firstLaunch: firstLaunch, now: Date(), activation: activation)
     }
 
     func activate(key: String) async -> LicenseError? {
         guard let store else { return .unreadable }
-        let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = LicensePolicy.normalizedKey(key)
         // Polar shows the label beside each Mac using a key. A random one, so
         // the Mac's own name never leaves it.
         let body = ["key": key, "organization_id": store.organizationID,
@@ -55,7 +70,14 @@ final class Licensing: ObservableObject {
         switch LicensePolicy.activation(status: status, data: data, key: key,
                                         organizationID: store.organizationID, benefitID: store.benefitID) {
         case .success(let activation):
-            Keychain.write(activation)
+            guard Keychain.write(activation) else {
+                // Without the Keychain entry this Mac would forget the key at
+                // the next launch, and a second try would spend another of
+                // its Macs. Give this one back.
+                _ = await Self.post("deactivate", ["key": activation.key, "organization_id": store.organizationID,
+                                                   "activation_id": activation.activationID])
+                return .refused("Perch couldn't save the key in your Keychain. Unlock it in Keychain Access, then try again.")
+            }
             self.activation = activation
             return nil
         case .failure(let error):
@@ -111,7 +133,8 @@ final class Licensing: ObservableObject {
             .appendingPathComponent("Library/Application Support/Perch")
         let file = dir.appendingPathComponent("firstlaunch")
         if let text = try? String(contentsOf: file, encoding: .utf8),
-           let seconds = Double(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+           let seconds = Double(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+           seconds.isFinite, seconds > 0 {
             return Date(timeIntervalSince1970: seconds)
         }
         let now = Date()
@@ -131,22 +154,30 @@ final class Licensing: ObservableObject {
             kSecAttrAccount as String: "license",
         ]
 
-        static func read() -> LicenseActivation? {
+        enum Read { case found(LicenseActivation), none, unreadable }
+
+        static func read() -> Read {
             var q = query
             q[kSecReturnData as String] = true
             var result: AnyObject?
-            guard SecItemCopyMatching(q as CFDictionary, &result) == errSecSuccess,
-                  let data = result as? Data else { return nil }
-            return try? JSONDecoder().decode(LicenseActivation.self, from: data)
+            let status = SecItemCopyMatching(q as CFDictionary, &result)
+            if status == errSecItemNotFound { return .none }
+            guard status == errSecSuccess, let data = result as? Data else {
+                wplog("license: keychain read failed (\(status))")
+                return .unreadable
+            }
+            // An entry that can't be decoded is as good as none.
+            return (try? JSONDecoder().decode(LicenseActivation.self, from: data)).map(Read.found) ?? .none
         }
 
-        static func write(_ activation: LicenseActivation) {
-            guard let data = try? JSONEncoder().encode(activation) else { return }
+        static func write(_ activation: LicenseActivation) -> Bool {
+            guard let data = try? JSONEncoder().encode(activation) else { return false }
             delete()
             var q = query
             q[kSecValueData as String] = data
             let status = SecItemAdd(q as CFDictionary, nil)
             if status != errSecSuccess { wplog("license: keychain write failed (\(status))") }
+            return status == errSecSuccess
         }
 
         static func delete() {
@@ -229,7 +260,7 @@ private struct LicenseView: View {
                     Spacer()
                     Button("Activate", action: activate)
                         .keyboardShortcut(.defaultAction)
-                        .disabled(working || key.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(working || LicensePolicy.normalizedKey(key).isEmpty)
                 }
             } else {
                 HStack {
@@ -244,6 +275,9 @@ private struct LicenseView: View {
     }
 
     private func activate() {
+        // Return and the button both land here; a second request while the
+        // first is out would spend a second Mac on the same key.
+        guard !working, !LicensePolicy.normalizedKey(key).isEmpty else { return }
         working = true
         error = nil
         Task {
@@ -259,6 +293,7 @@ private struct LicenseView: View {
 struct LicenseSettingsSection: View {
     @ObservedObject private var licensing = Licensing.shared
     @State private var failed = false
+    @State private var working = false
 
     var body: some View {
         let state = licensing.state
@@ -266,10 +301,20 @@ struct LicenseSettingsSection: View {
             LabeledContent {
                 if state == .licensed {
                     Button("Deactivate This Mac") {
-                        Task { failed = !(await licensing.deactivate()) }
+                        guard !working else { return }
+                        working = true
+                        Task {
+                            failed = !(await licensing.deactivate())
+                            working = false
+                        }
                     }
+                    .disabled(working)
+                    // LabeledContent would otherwise name the button after
+                    // its row ("Licensed").
+                    .accessibilityLabel("Deactivate This Mac")
                 } else {
                     Button("Enter Key\u{2026}") { LicenseWindow.show() }
+                        .accessibilityLabel("Enter Key")
                 }
             } label: {
                 Text(state.label)

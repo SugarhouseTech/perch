@@ -63,12 +63,45 @@ import Testing
         #expect(activate(404, body) == .failure(.notFound))
     }
 
-    @Test(arguments: [403, 422])
-    func aRefusalExplainsTheLikelyReason(status: Int) {
-        guard case .failure(.refused(let reason)) = activate(status, Data(#"{"error": "NotPermitted"}"#.utf8)) else {
+    // Polar's exact answer when every Mac is used (seen live, 2026-11-19).
+    @Test func aFullKeySaysToDeactivateAMac() {
+        let body = Data(#"{"error": "NotPermitted", "detail": "License key activation limit already reached"}"#.utf8)
+        guard case .failure(.refused(let reason)) = activate(403, body) else { Issue.record("expected a refusal"); return }
+        #expect(reason.contains("Deactivate it on one of them"))
+    }
+
+    @Test func anotherRefusalSuggestsARefund() {
+        let body = Data(#"{"error": "NotPermitted", "detail": "License key is revoked"}"#.utf8)
+        guard case .failure(.refused(let reason)) = activate(403, body) else { Issue.record("expected a refusal"); return }
+        #expect(reason.contains("refunded"))
+    }
+
+    @Test func aMalformedKeyIsNotCalledFull() {
+        guard case .failure(.refused(let reason)) = activate(422, Data(#"{"detail": []}"#.utf8)) else {
             Issue.record("expected a refusal"); return
         }
-        #expect(reason.contains("5 Macs"))
+        #expect(!reason.contains("Macs"))
+    }
+
+    @Test(arguments: [
+        ("PERCH-6237E382-170D-4AA5-BF80-D853BDF27A55", "PERCH-6237E382-170D-4AA5-BF80-D853BDF27A55"),
+        ("  perch-6237e382-170d-4aa5-bf80-d853bdf27a55\n", "PERCH-6237E382-170D-4AA5-BF80-D853BDF27A55"),
+        ("\"PERCH-AB\"", "PERCH-AB"),
+        ("\u{201C}PERCH-AB\u{201D}", "PERCH-AB"),
+        ("License key: PERCH-AB", "PERCH-AB"),
+        ("`PERCH-AB`", "PERCH-AB"),
+        ("", ""),
+        (" \n\t", ""),
+    ])
+    func normalisesWhatPeoplePaste(pasted: String, sent: String) {
+        #expect(LicensePolicy.normalizedKey(pasted) == sent)
+    }
+
+    @Test(arguments: [Double.nan, -1e30, 1e30, Double.infinity])
+    func aNonsenseStartNeverTraps(seconds: Double) {
+        let state = LicensePolicy.state(firstLaunch: Date(timeIntervalSince1970: seconds),
+                                        now: Date(timeIntervalSince1970: 1_800_000_000), activation: nil)
+        #expect(state == .expired || state == .trial(daysLeft: 14))
     }
 
     @Test(arguments: [
@@ -113,7 +146,7 @@ import Testing
         #expect(LicenseState.licensed.menuTitle == nil)
     }
 
-    @Test(arguments: [(204, true), (404, true), (422, false), (500, false), (0, false)])
+    @Test(arguments: [(204, true), (404, true), (422, true), (500, false), (0, false)])
     func readsTheDeactivateAnswer(status: Int, gone: Bool) {
         #expect(LicensePolicy.deactivated(status: status) == gone)
     }

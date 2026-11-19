@@ -65,8 +65,10 @@ nonisolated enum LicensePolicy {
     static func state(firstLaunch: Date, now: Date, activation: LicenseActivation?) -> LicenseState {
         if activation != nil { return .licensed }
         // A clock set back before the first launch counts as day one, not as
-        // extra days.
-        let elapsed = max(0, now.timeIntervalSince(firstLaunch))
+        // extra days. A start that isn't a real time (a hand-edited file)
+        // counts as day one too, rather than trapping below.
+        let raw = now.timeIntervalSince(firstLaunch)
+        let elapsed = raw.isFinite ? min(max(0, raw), Double(trialDays + 1) * day) : 0
         let left = trialDays - Int((elapsed / day).rounded(.down))
         return left > 0 ? .trial(daysLeft: left) : .expired
     }
@@ -77,11 +79,22 @@ nonisolated enum LicensePolicy {
         alreadyPerched || state != .expired
     }
 
+    /// What people paste is rarely just the key: a line from the receipt
+    /// ("License key: PERCH-…"), quotes, a trailing newline, lower case
+    /// from retyping it. Polar's keys are upper case and case-sensitive.
+    static func normalizedKey(_ pasted: String) -> String {
+        let quotes = CharacterSet(charactersIn: "\"'`\u{201C}\u{201D}\u{2018}\u{2019}")
+        let token = pasted.split(whereSeparator: { $0.isWhitespace }).last.map(String.init) ?? ""
+        return token.trimmingCharacters(in: quotes).uppercased()
+    }
+
     /// Whether `POST …/license-keys/deactivate` left this Mac uncounted.
     /// Polar answers 204 when it did, and 404 when it never knew this
-    /// activation, which counts as done: the key can be forgotten here.
+    /// activation, which counts as done: the key can be forgotten here. A 422
+    /// means the stored activation can't even be read by Polar, so keeping
+    /// it would leave the Mac stuck; it is forgotten too.
     static func deactivated(status: Int) -> Bool {
-        status == 204 || status == 404
+        status == 204 || status == 404 || status == 422
     }
 
     /// Reads the answer to `POST …/license-keys/activate`. The organisation
@@ -101,16 +114,22 @@ nonisolated enum LicensePolicy {
                 key: key.trimmingCharacters(in: .whitespacesAndNewlines), activationID: reply.id))
         case 404:
             return .failure(.notFound)
-        case 403, 422:
-            // Polar's wording for a refusal isn't documented, so the reason
-            // shown is ours; the likely ones are a revoked key or one already
-            // on every Mac it allows.
-            return .failure(.refused(
-                "This key can't be activated here. It may be in use on 5 Macs already: deactivate one in its Settings, or contact support."))
+        case 403:
+            // Polar says "License key activation limit already reached" when
+            // the key is on every Mac it allows; other refusals are a key
+            // that was refunded or revoked.
+            let detail = (try? JSONDecoder().decode(Refusal.self, from: data))?.detail ?? ""
+            return .failure(.refused(detail.localizedCaseInsensitiveContains("activation limit")
+                ? "This key is already on as many Macs as it allows. Deactivate it on one of them in Perch Settings, then try again."
+                : "This key can't be activated. It may have been refunded. Contact support if that's a mistake."))
+        case 422:
+            return .failure(.refused("Polar couldn't read that key. Check it against your receipt."))
         default:
             return .failure(.unreadable)
         }
     }
+
+    private struct Refusal: Decodable { let detail: String }
 
     private struct Activated: Decodable {
         let id: String
