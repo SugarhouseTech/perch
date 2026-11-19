@@ -1,4 +1,7 @@
 # Build outputs
+# Written only by the download's build (PERCH_DIRECT=1), whose one
+# dependency is pinned exactly in Package.swift.
+Package.resolved
 *.app
 *.zip
 *.saver

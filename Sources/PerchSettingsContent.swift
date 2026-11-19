@@ -99,6 +99,10 @@ struct PerchSettingsContent: View {
             MenuBarPillToggle { delegate.updateIcon() }
         }
 
+        #if PERCH_DIRECT
+        LicenseSettingsSection()
+        #endif
+
         MenuBarVisibilitySettings()
 
         Section("Permissions") {
