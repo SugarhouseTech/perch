@@ -121,6 +121,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.updateIcon()
         }
 
+        #if PERCH_DIRECT
+        // Starts Sparkle's daily check, and reads the trial and key once.
+        _ = Updater.controller
+        _ = Licensing.shared
+        #endif
+
         wplog("Launched successfully")
 
         // Shown without taking the keyboard: at login, it would otherwise
@@ -272,6 +278,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        #if PERCH_DIRECT
+        addDownloadItems(to: menu)
+        #endif
+
         let settingsItem = NSMenuItem(title: "Settings\u{2026}", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         settingsItem.image = Self.symbol("gearshape")
@@ -337,6 +347,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         unperchAll.image = Self.symbol("pip.remove")
         menu.addItem(unperchAll)
     }
+
+    #if PERCH_DIRECT
+    /// The trial and the way to buy, until a key is entered; then only the
+    /// update check.
+    private func addDownloadItems(to menu: NSMenu) {
+        let state = Licensing.shared.state
+        if state != .licensed {
+            let status = NSMenuItem(title: state.label, action: nil, keyEquivalent: "")
+            status.isEnabled = false
+            status.image = Self.symbol("clock")
+            menu.addItem(status)
+            let buy = NSMenuItem(title: "Buy Perch ($6)\u{2026}", action: #selector(buyPerch), keyEquivalent: "")
+            buy.target = self
+            buy.image = Self.symbol("cart")
+            menu.addItem(buy)
+            let enter = NSMenuItem(title: "Enter License Key\u{2026}", action: #selector(showLicense), keyEquivalent: "")
+            enter.target = self
+            enter.image = Self.symbol("key")
+            menu.addItem(enter)
+        }
+        let update = NSMenuItem(title: "Check for Updates\u{2026}", action: #selector(checkForUpdates), keyEquivalent: "")
+        update.target = self
+        update.image = Self.symbol("arrow.triangle.2.circlepath")
+        menu.addItem(update)
+        menu.addItem(NSMenuItem.separator())
+    }
+
+    @objc private func buyPerch() { Licensing.shared.openBuyPage() }
+    @objc private func showLicense() { LicenseWindow.show() }
+    @objc private func checkForUpdates() { Updater.checkForUpdates() }
+    #endif
 
     /// Every item gets an image: macOS 26 and later add one to Settings by
     /// themselves, and a menu with only some leaves the rest out of line.
@@ -440,6 +481,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             wplog("toggle: \(fw.ownerName) is ignored")
             return false
         }
+        #if PERCH_DIRECT
+        // After the trial, a new perch asks for a key; ones already made stay,
+        // and can still be unperched.
+        guard LicensePolicy.allowsToggle(
+            state: Licensing.shared.state, alreadyPerched: tracker.isPinned(windowID: fw.windowID))
+        else {
+            LicenseWindow.show()
+            return false
+        }
+        #endif
         tracker.toggle(window: fw)
         return true
     }

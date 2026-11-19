@@ -18,18 +18,33 @@ let swiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("ImmutableWeakCaptures"),
 ]
 
+// The download from sugarhouse.tech is built with PERCH_DIRECT=1. It adds
+// Sparkle for updates and the trial and licence code. A build from source
+// leaves both out, so it needs nothing beyond the Xcode command line tools.
+let direct = Context.environment["PERCH_DIRECT"] == "1"
+let directDependencies: [Package.Dependency] = direct
+    ? [.package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.2")] : []
+let directTargetDependencies: [Target.Dependency] = direct
+    ? [.product(name: "Sparkle", package: "Sparkle")] : []
+let directSwiftSettings: [SwiftSetting] = direct ? [.define("PERCH_DIRECT")] : []
+// The release script copies Sparkle into Contents/Frameworks.
+let directLinkerSettings: [LinkerSetting] = direct
+    ? [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])] : []
+
 let package = Package(
     name: "Perch",
     platforms: [.macOS(.v14)],
+    dependencies: directDependencies,
     targets: [
         .executableTarget(
             name: "Perch",
+            dependencies: directTargetDependencies,
             path: "Sources",
             // An app runs on the main thread unless it says otherwise. The
             // pure logic (see AGENTS.md) is marked `nonisolated`, so tests
             // and background queues can call it directly.
-            swiftSettings: swiftSettings + [.defaultIsolation(MainActor.self)],
-            linkerSettings: [
+            swiftSettings: swiftSettings + [.defaultIsolation(MainActor.self)] + directSwiftSettings,
+            linkerSettings: directLinkerSettings + [
                 .linkedFramework("AppKit"),
                 .linkedFramework("ApplicationServices"),
                 .linkedFramework("ScreenCaptureKit"),

@@ -8,8 +8,14 @@ build log stays on screen while you work somewhere else.
 
 ## Install
 
-Perch needs macOS 14 or later. There are no packaged releases yet, so build
-it with the Xcode 26 command line tools (Swift 6.2):
+Perch needs macOS 14 or later.
+
+**Download** it from [sugarhouse.tech/products/perch](https://sugarhouse.tech/products/perch/).
+It's free for 14 days, then $6 once. The download is signed, notarised and
+keeps itself up to date.
+
+**Or build it** yourself, free, with the Xcode 26 command line tools
+(Swift 6.2):
 
 ```sh
 git clone https://github.com/SugarhouseTech/perch.git
@@ -37,7 +43,9 @@ windows, cropping, every setting, troubleshooting, and building from source.
 ## Privacy
 
 Perch records only the windows you perch, and only while they are on screen.
-It saves nothing, sends nothing and never connects to the internet.
+It saves nothing and sends nothing. The download checks sugarhouse.tech once
+a day for updates, and contacts Polar once when you enter a key. A copy
+built from source never connects to the internet.
 
 ## Credits
 

@@ -21,6 +21,10 @@ a user reads (menus, Settings, the setup window, the README). The code keeps
 - Try real behaviour in the installed app, which is the one holding the
   Accessibility and Screen Recording grants. An ad hoc rebuild loses them;
   a Developer ID set in `local.mk` keeps them (see the README).
+- `PERCH_DIRECT=1` builds the download sold at sugarhouse.tech: it adds
+  Sparkle and the trial and licence (`Licensing`, `Updater`, all inside
+  `#if PERCH_DIRECT`). Plain builds leave both out and stay free. The
+  release scripts that sign, notarise and publish it live outside this repo.
 - The debug log is turned on with
   `defaults write tech.sugarhouse.Perch debugLogging -bool true` and written to
   `~/Library/Logs/Perch/perch.log`.
@@ -44,6 +48,7 @@ answer.
 | `PinPolicy`: unpinning closed windows, layering on app switch | `PinnedWindowTracker` |
 | `BadgeSchedule`, `BadgeOffsets`, `TitleBarSlotFinder.merge`: pin button timing and placement | `PinBadges`, `TitleBarSlot` |
 | `EventMapping`, `ScrollMath`: events and scrolling sent to a pinned window | `EventForwarder`, `AXScroller` |
+| `LicensePolicy`: the trial, and reading Polar's answer to a key | `Licensing` |
 
 `Sources/JorvikKit` is shared code from the original app (permissions, launch
 at login, the menu bar icon).

@@ -1006,7 +1006,7 @@ class WindowOverlay: NSPanel {
         ignoresMouseEvents = false
         orderFront(nil)
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.15
+            context.duration = 0
             self.animator().alphaValue = 1
         }
         send(.fadedIn)
