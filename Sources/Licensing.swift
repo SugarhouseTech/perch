@@ -217,7 +217,7 @@ private struct LicenseView: View {
 
     private func headline(_ state: LicenseState) -> String {
         switch state {
-        case .licensed: "Perch is yours"
+        case .licensed: "Thank you!"
         case .expired: "Your trial has ended"
         case .trial(let days): days == 1 ? "1 day left in your trial" : "\(days) days left in your trial"
         }
@@ -236,7 +236,7 @@ private struct LicenseView: View {
                         .font(.title3.weight(.semibold))
                         .accessibilityAddTraits(.isHeader)
                     Text(state == .licensed
-                         ? "Thank you for buying Perch."
+                         ? "Perch is all yours on this Mac."
                          : "Your key is in your receipt email.")
                         .foregroundStyle(.secondary)
                 }
@@ -298,7 +298,17 @@ struct LicenseSettingsSection: View {
     var body: some View {
         let state = licensing.state
         Section("License") {
-            LabeledContent {
+            // A plain row, not LabeledContent: that names its button after
+            // the row, so VoiceOver read "Licensed, button" for Deactivate.
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(state.label)
+                    if failed {
+                        Text("Couldn't reach Polar. Try again when you're online.")
+                            .font(.settingsHelp)
+                    }
+                }
+                Spacer()
                 if state == .licensed {
                     Button("Deactivate This Mac") {
                         guard !working else { return }
@@ -309,18 +319,8 @@ struct LicenseSettingsSection: View {
                         }
                     }
                     .disabled(working)
-                    // LabeledContent would otherwise name the button after
-                    // its row ("Licensed").
-                    .accessibilityLabel("Deactivate This Mac")
                 } else {
                     Button("Enter Key\u{2026}") { LicenseWindow.show() }
-                        .accessibilityLabel("Enter Key")
-                }
-            } label: {
-                Text(state.label)
-                if failed {
-                    Text("Couldn't reach Polar. Try again when you're online.")
-                        .font(.settingsHelp)
                 }
             }
         }

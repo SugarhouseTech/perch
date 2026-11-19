@@ -27,6 +27,11 @@ enum AboutWindow {
 }
 
 private struct AboutView: View {
+    #if PERCH_DIRECT
+    // So the line below the name changes the moment a key is entered.
+    @ObservedObject private var licensing = Licensing.shared
+    #endif
+
     static let website = URL(string: "https://sugarhouse.tech/products/perch/")!
     static let source = URL(string: "https://github.com/SugarhouseTech/perch")!
     static let windowPin = URL(string: "https://github.com/PerpetualBeta/WindowPin")!
@@ -90,22 +95,26 @@ private struct AboutView: View {
                 .accessibilityAddTraits(.isHeader)
             Text("Keep any window in view.")
                 .foregroundStyle(.secondary)
-            Text(statusLine)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .monospacedDigit()
-                .padding(.top, 2)
+            VStack(spacing: 6) {
+                Text("Version \(version)")
+                    .monospacedDigit()
+                #if PERCH_DIRECT
+                // Bought or not, and how long is left: what people check here
+                // before writing in. Until it's bought, the way to buy is beside it.
+                HStack(spacing: 10) {
+                    Text(licensing.state.label)
+                        .monospacedDigit()
+                    if licensing.state != .licensed {
+                        Button("Buy Perch") { licensing.openBuyPage() }
+                            .controlSize(.small)
+                    }
+                }
+                #endif
+            }
+            .foregroundStyle(.secondary)
+            .fixedSize()
+            .padding(.top, 4)
         }
-    }
-
-    /// The version, and in the download whether it's bought or how much
-    /// trial is left: the two things people check here before writing in.
-    private var statusLine: String {
-        #if PERCH_DIRECT
-        return "Version \(version) \u{00B7} \(Licensing.shared.state.label)"
-        #else
-        return "Version \(version)"
-        #endif
     }
 
     private var links: some View {
