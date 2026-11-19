@@ -423,7 +423,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - About & Settings
 
     @objc private func openAbout() {
-        JorvikAboutView.showWindow(appName: "Perch")
+        AboutWindow.show()
     }
 
     @objc private func openSettings() {
