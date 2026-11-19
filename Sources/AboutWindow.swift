@@ -31,6 +31,10 @@ private struct AboutView: View {
     static let source = URL(string: "https://github.com/SugarhouseTech/perch")!
     static let windowPin = URL(string: "https://github.com/PerpetualBeta/WindowPin")!
     static let supportAddress = "support@sugarhouse.tech"
+    static let thanksText = (try? AttributedString(markdown:
+        "Perch grew from WindowPin, by Jonathan Hollin of [Jorvik Software](https://jorviksoftware.cc/), who shared it freely.\nThank you, Jonathan.",
+        options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+        ?? AttributedString("Perch grew from WindowPin, by Jonathan Hollin of Jorvik Software, who shared it freely.\nThank you, Jonathan.")
 
     private var version: String {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -59,10 +63,6 @@ private struct AboutView: View {
             links
                 .padding(.bottom, 22)
             thanks
-                .padding(.bottom, 18)
-            Text("Made with care in Salt Lake City by Sugarhouse Tech.")
-                .font(.footnote)
-                .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 28)
         .padding(.top, 24)
@@ -127,7 +127,7 @@ private struct AboutView: View {
                 Licensing.shared.openOrders()
             }
             #endif
-            LinkRow(symbol: "chevron.left.forwardslash.chevron.right", title: "Source code") {
+            LinkRow(symbol: "chevron.left.forwardslash.chevron.right", title: "Source code, public domain") {
                 NSWorkspace.shared.open(Self.source)
             }
         }
@@ -143,7 +143,7 @@ private struct AboutView: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
-            Text("Perch grew from WindowPin, by Jonathan Hollin of Jorvik Software, who shared it freely.\nThank you, Jonathan.")
+            Text(Self.thanksText)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
