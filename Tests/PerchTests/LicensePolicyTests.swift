@@ -21,47 +21,61 @@ import Testing
     }
 
     @Test func anActivatedKeyOutlastsTheTrial() {
-        let activation = LicenseActivation(key: "K", instanceID: "I")
+        let activation = LicenseActivation(key: "K", activationID: "A")
         let later = start.addingTimeInterval(1000 * day)
         #expect(LicensePolicy.state(firstLaunch: start, now: later, activation: activation) == .licensed)
     }
 
-    // Shaped like Lemon Squeezy's documented replies.
-    private func reply(activated: Bool, error: String? = nil, store: Int = 7, product: Int = 42) -> Data {
-        let instance = activated ? #"{"id": "inst-1", "name": "x", "created_at": "2026-11-19T00:00:00Z"}"# : "null"
-        let errorJSON = error.map { "\"\($0)\"" } ?? "null"
-        return Data("""
-        {"activated": \(activated), "error": \(errorJSON),
-         "license_key": {"id": 1, "status": "active", "key": "K", "activation_limit": 5, "activation_usage": 1},
-         "instance": \(instance),
-         "meta": {"store_id": \(store), "order_id": 2, "product_id": \(product), "product_name": "Perch",
-                  "variant_id": 3, "customer_id": 4, "customer_name": "A", "customer_email": "a@example.com"}}
+    private static let org = "11111111-1111-4111-8111-111111111111"
+    private static let benefit = "22222222-2222-4222-8222-222222222222"
+
+    // Shaped like Polar's documented LicenseKeyActivationCreated.
+    private func activated(org: String = org, benefit: String = benefit) -> Data {
+        Data("""
+        {"id": "act-1", "license_key_id": "lk-1", "label": "Perch 1a2b3c4d", "meta": {},
+         "created_at": "2026-11-19T00:00:00Z", "modified_at": null,
+         "license_key": {"id": "lk-1", "organization_id": "\(org)", "benefit_id": "\(benefit)",
+                         "customer_id": "c-1", "key": "K", "display_key": "****-K", "status": "granted",
+                         "limit_activations": 5, "usage": 0, "limit_usage": null, "validations": 0,
+                         "last_validated_at": null, "expires_at": null}}
         """.utf8)
     }
 
-    @Test func acceptsAKeyForThisProduct() {
-        let result = LicensePolicy.activation(from: reply(activated: true), key: "  K\n", storeID: 7, productID: 42)
-        #expect(result == .success(LicenseActivation(key: "K", instanceID: "inst-1")))
+    private func activate(_ status: Int, _ data: Data, key: String = "K") -> Result<LicenseActivation, LicenseError> {
+        LicensePolicy.activation(status: status, data: data, key: key,
+                                 organizationID: Self.org, benefitID: Self.benefit)
     }
 
-    @Test(arguments: [(8, 42), (7, 41)])
-    func refusesAKeyForAnotherStoreOrProduct(store: Int, product: Int) {
-        let data = reply(activated: true, store: store, product: product)
-        #expect(LicensePolicy.activation(from: data, key: "K", storeID: 7, productID: 42) == .failure(.wrongProduct))
+    @Test func acceptsAKeyForThisProduct() {
+        #expect(activate(200, activated(), key: "  K\n") == .success(LicenseActivation(key: "K", activationID: "act-1")))
     }
 
     @Test(arguments: [
-        ("license_key not found.", "License key not found."),
-        ("This license key has reached the activation limit", "This license key has reached the activation limit."),
+        ("33333333-3333-4333-8333-333333333333", benefit),
+        (org, "44444444-4444-4444-8444-444444444444"),
     ])
-    func passesOnLemonSqueezysReasonAsASentence(error: String, shown: String) {
-        let data = reply(activated: false, error: error)
-        #expect(LicensePolicy.activation(from: data, key: "K", storeID: 7, productID: 42) == .failure(.refused(shown)))
+    func refusesAKeyForAnotherOrganisationOrBenefit(org: String, benefit: String) {
+        #expect(activate(200, activated(org: org, benefit: benefit)) == .failure(.wrongProduct))
     }
 
-    @Test(arguments: ["", "<html>502 Bad Gateway</html>", #"{"activated": "yes"}"#])
-    func anUnreadableAnswerSaysSo(body: String) {
-        #expect(LicensePolicy.activation(from: Data(body.utf8), key: "K", storeID: 7, productID: 42) == .failure(.unreadable))
+    @Test func anUnknownKeyIsNotFound() {
+        let body = Data(#"{"error": "ResourceNotFound", "detail": "License key not found"}"#.utf8)
+        #expect(activate(404, body) == .failure(.notFound))
+    }
+
+    @Test(arguments: [403, 422])
+    func aRefusalExplainsTheLikelyReason(status: Int) {
+        guard case .failure(.refused(let reason)) = activate(status, Data(#"{"error": "NotPermitted"}"#.utf8)) else {
+            Issue.record("expected a refusal"); return
+        }
+        #expect(reason.contains("5 Macs"))
+    }
+
+    @Test(arguments: [
+        (200, ""), (200, "<html>502 Bad Gateway</html>"), (502, "<html>502</html>"), (0, ""),
+    ])
+    func anUnreadableAnswerSaysSo(status: Int, body: String) {
+        #expect(activate(status, Data(body.utf8)) == .failure(.unreadable))
     }
 }
 
@@ -86,13 +100,8 @@ import Testing
         #expect(state.label == label)
     }
 
-    @Test(arguments: [
-        (#"{"deactivated": true, "error": null}"#, true),
-        (#"{"deactivated": false, "error": "license_key instance not found."}"#, true),
-        (#"{"deactivated": false, "error": "license_key not valid."}"#, false),
-        ("<html>502</html>", false),
-    ])
-    func readsTheDeactivateAnswer(body: String, gone: Bool) {
-        #expect(LicensePolicy.deactivated(from: Data(body.utf8)) == gone)
+    @Test(arguments: [(204, true), (404, true), (422, false), (500, false), (0, false)])
+    func readsTheDeactivateAnswer(status: Int, gone: Bool) {
+        #expect(LicensePolicy.deactivated(status: status) == gone)
     }
 }

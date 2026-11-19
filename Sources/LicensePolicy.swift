@@ -16,28 +16,31 @@ nonisolated enum LicenseState: Equatable, Sendable {
     }
 }
 
-/// A Lemon Squeezy key that has been activated on this Mac. The instance ID
-/// is what Lemon Squeezy counts against the key's limit of Macs, and what
-/// deactivating gives back.
+/// A Polar key that has been activated on this Mac. The activation ID is
+/// what Polar counts against the key's limit of Macs, and what deactivating
+/// gives back.
 nonisolated struct LicenseActivation: Codable, Equatable, Sendable {
     let key: String
-    let instanceID: String
+    let activationID: String
 }
 
 /// Why a key was not accepted, worded for the person who typed it.
 nonisolated enum LicenseError: Error, Equatable, Sendable {
-    /// Lemon Squeezy's own explanation: unknown key, disabled, too many Macs.
+    /// No such key.
+    case notFound
+    /// Polar's refusal: revoked, or already on as many Macs as it allows.
     case refused(String)
-    /// A real key, but for another product or store.
+    /// A real key, but for another product.
     case wrongProduct
     /// No answer that could be read: offline, or a server error page.
     case unreadable
 
     var message: String {
         switch self {
+        case .notFound: "That key wasn't found. Check it against your receipt."
         case .refused(let reason): reason
         case .wrongProduct: "This key is for a different product."
-        case .unreadable: "Couldn't reach Lemon Squeezy. Check your connection and try again."
+        case .unreadable: "Couldn't reach Polar. Check your connection and try again."
         }
     }
 }
@@ -64,61 +67,52 @@ nonisolated enum LicensePolicy {
         alreadyPerched || state != .expired
     }
 
-    /// Reads the answer to `POST /v1/licenses/deactivate`: whether this Mac
-    /// is no longer counted against the key. Lemon Squeezy not knowing the
-    /// Mac at all counts as done, so a key deactivated elsewhere can still
-    /// be forgotten here.
-    static func deactivated(from data: Data) -> Bool {
-        guard let reply = try? JSONDecoder().decode(DeactivateReply.self, from: data) else { return false }
-        return reply.deactivated || reply.error?.localizedCaseInsensitiveContains("not found") == true
+    /// Whether `POST …/license-keys/deactivate` left this Mac uncounted.
+    /// Polar answers 204 when it did, and 404 when it never knew this
+    /// activation, which counts as done: the key can be forgotten here.
+    static func deactivated(status: Int) -> Bool {
+        status == 204 || status == 404
     }
 
-    private struct DeactivateReply: Decodable {
-        let deactivated: Bool
-        let error: String?
-    }
-
-    /// Reads the answer to `POST /v1/licenses/activate`. Lemon Squeezy says
-    /// to check the store and product, since any key from any store would
-    /// otherwise activate.
+    /// Reads the answer to `POST …/license-keys/activate`. The organisation
+    /// and benefit are checked so that a key for another product, or a Polar
+    /// response from somewhere unexpected, never unlocks Perch.
     static func activation(
-        from data: Data, key: String, storeID: Int, productID: Int
+        status: Int, data: Data, key: String, organizationID: String, benefitID: String
     ) -> Result<LicenseActivation, LicenseError> {
-        guard let reply = try? JSONDecoder().decode(ActivateReply.self, from: data) else {
+        switch status {
+        case 200:
+            guard let reply = try? JSONDecoder().decode(Activated.self, from: data) else {
+                return .failure(.unreadable)
+            }
+            guard reply.licenseKey.organizationID == organizationID,
+                  reply.licenseKey.benefitID == benefitID else { return .failure(.wrongProduct) }
+            return .success(LicenseActivation(
+                key: key.trimmingCharacters(in: .whitespacesAndNewlines), activationID: reply.id))
+        case 404:
+            return .failure(.notFound)
+        case 403, 422:
+            // Polar's wording for a refusal isn't documented, so the reason
+            // shown is ours; the likely ones are a revoked key or one already
+            // on every Mac it allows.
+            return .failure(.refused(
+                "This key can't be activated here. It may be in use on 5 Macs already: deactivate one in its Settings, or contact support."))
+        default:
             return .failure(.unreadable)
         }
-        guard reply.activated, let instance = reply.instance else {
-            return .failure(.refused(sentence(reply.error) ?? "This key wasn't accepted."))
-        }
-        guard reply.meta?.storeID == storeID, reply.meta?.productID == productID else {
-            return .failure(.wrongProduct)
-        }
-        return .success(LicenseActivation(
-            key: key.trimmingCharacters(in: .whitespacesAndNewlines), instanceID: instance.id))
     }
 
-    /// Lemon Squeezy's errors are lower case and sometimes lack a full stop
-    /// ("license_key not found."); shown as they come they look like a bug.
-    private static func sentence(_ error: String?) -> String? {
-        guard var text = error?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
-        text = text.replacingOccurrences(of: "license_key", with: "license key")
-        text = text.prefix(1).uppercased() + text.dropFirst()
-        return text.hasSuffix(".") ? text : text + "."
-    }
+    private struct Activated: Decodable {
+        let id: String
+        let licenseKey: Key
+        enum CodingKeys: String, CodingKey { case id, licenseKey = "license_key" }
 
-    private struct ActivateReply: Decodable {
-        let activated: Bool
-        let error: String?
-        let instance: Instance?
-        let meta: Meta?
-
-        struct Instance: Decodable { let id: String }
-        struct Meta: Decodable {
-            let storeID: Int
-            let productID: Int
+        struct Key: Decodable {
+            let organizationID: String
+            let benefitID: String
             enum CodingKeys: String, CodingKey {
-                case storeID = "store_id"
-                case productID = "product_id"
+                case organizationID = "organization_id"
+                case benefitID = "benefit_id"
             }
         }
     }

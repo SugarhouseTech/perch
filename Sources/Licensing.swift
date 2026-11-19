@@ -4,10 +4,9 @@ import Combine
 import Security
 import SwiftUI
 
-/// The trial and the Lemon Squeezy key, in the download from sugarhouse.tech
-/// only. The decisions are in `LicensePolicy`; this keeps the state and talks
-/// to Lemon Squeezy, once when a key is entered and once if it is
-/// deactivated. Nothing is checked online after that.
+/// The trial and the Polar key, in the download from sugarhouse.tech only.
+/// The decisions are in `LicensePolicy`; this keeps the state and talks to
+/// Polar, once when a key is entered and once if it is deactivated. Nothing is checked online after that.
 ///
 /// Building from source leaves all of this out, and Perch has no trial.
 final class Licensing: ObservableObject {
@@ -16,18 +15,18 @@ final class Licensing: ObservableObject {
     /// Set by the release build in Info.plist, so the store's details stay
     /// out of the source.
     private struct Store {
-        let storeID: Int
-        let productID: Int
+        let organizationID: String
+        let benefitID: String
         let buyURL: URL
         let ordersURL: URL
 
         init?(_ info: [String: Any]) {
-            guard let storeID = info["PerchLicenseStoreID"] as? Int,
-                  let productID = info["PerchLicenseProductID"] as? Int,
+            guard let organizationID = info["PerchPolarOrganizationID"] as? String,
+                  let benefitID = info["PerchPolarBenefitID"] as? String,
                   let buy = (info["PerchBuyURL"] as? String).flatMap(URL.init(string:)),
                   let orders = (info["PerchOrdersURL"] as? String).flatMap(URL.init(string:))
             else { return nil }
-            (self.storeID, self.productID, buyURL, ordersURL) = (storeID, productID, buy, orders)
+            (self.organizationID, self.benefitID, buyURL, ordersURL) = (organizationID, benefitID, buy, orders)
         }
     }
 
@@ -48,11 +47,13 @@ final class Licensing: ObservableObject {
     func activate(key: String) async -> LicenseError? {
         guard let store else { return .unreadable }
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Lemon Squeezy shows the instance name beside each Mac using a key.
-        // A random one, so the Mac's own name never leaves it.
-        let body = ["license_key": key, "instance_name": "Perch \(UUID().uuidString.prefix(8))"]
-        guard let data = await Self.post("activate", body) else { return .unreadable }
-        switch LicensePolicy.activation(from: data, key: key, storeID: store.storeID, productID: store.productID) {
+        // Polar shows the label beside each Mac using a key. A random one, so
+        // the Mac's own name never leaves it.
+        let body = ["key": key, "organization_id": store.organizationID,
+                    "label": "Perch \(UUID().uuidString.prefix(8))"]
+        guard let (status, data) = await Self.post("activate", body) else { return .unreadable }
+        switch LicensePolicy.activation(status: status, data: data, key: key,
+                                        organizationID: store.organizationID, benefitID: store.benefitID) {
         case .success(let activation):
             Keychain.write(activation)
             self.activation = activation
@@ -63,13 +64,14 @@ final class Licensing: ObservableObject {
     }
 
     /// Gives this Mac's place back to the key, so it can be used on another.
-    /// The key is forgotten here only once Lemon Squeezy agrees, or says it
-    /// never knew this Mac.
+    /// The key is forgotten here only once Polar agrees, or says it never
+    /// knew this Mac.
     func deactivate() async -> Bool {
-        guard let activation else { return true }
-        let body = ["license_key": activation.key, "instance_id": activation.instanceID]
-        guard let data = await Self.post("deactivate", body) else { return false }
-        let gone = LicensePolicy.deactivated(from: data)
+        guard let activation, let store else { return true }
+        let body = ["key": activation.key, "organization_id": store.organizationID,
+                    "activation_id": activation.activationID]
+        guard let (status, _) = await Self.post("deactivate", body) else { return false }
+        let gone = LicensePolicy.deactivated(status: status)
         if gone {
             Keychain.delete()
             self.activation = nil
@@ -80,24 +82,19 @@ final class Licensing: ObservableObject {
     func openBuyPage() { if let url = store?.buyURL { NSWorkspace.shared.open(url) } }
     func openOrders() { if let url = store?.ordersURL { NSWorkspace.shared.open(url) } }
 
-    // MARK: - Lemon Squeezy
+    // MARK: - Polar
 
-    /// Lemon Squeezy answers refusals with an error status and a JSON body
-    /// that says why, so the body is read whatever the status.
-    private static func post(_ action: String, _ fields: [String: String]) async -> Data? {
-        var request = URLRequest(url: URL(string: "https://api.lemonsqueezy.com/v1/licenses/\(action)")!)
+    /// Polar's customer-portal licence endpoints need no token, so a desktop
+    /// app can call them. The answer is in the status as much as the body.
+    private static func post(_ action: String, _ fields: [String: String]) async -> (Int, Data)? {
+        var request = URLRequest(url: URL(string: "https://api.polar.sh/v1/customer-portal/license-keys/\(action)")!)
         request.httpMethod = "POST"
         request.timeoutInterval = 20
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~")
-        request.httpBody = Data(fields
-            .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")" }
-            .joined(separator: "&").utf8)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONEncoder().encode(fields)
         do {
-            let (data, _) = try await URLSession.shared.data(for: request)
-            return data
+            let (data, response) = try await URLSession.shared.data(for: request)
+            return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
         } catch {
             wplog("license: \(action) failed: \(error.localizedDescription)")
             return nil
@@ -277,7 +274,7 @@ struct LicenseSettingsSection: View {
             } label: {
                 Text(state.label)
                 if failed {
-                    Text("Couldn't reach Lemon Squeezy. Try again when you're online.")
+                    Text("Couldn't reach Polar. Try again when you're online.")
                         .font(.settingsHelp)
                 }
             }
