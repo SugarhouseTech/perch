@@ -44,7 +44,7 @@ windows, cropping, every setting, troubleshooting, and building from source.
 
 Perch records only the windows you perch, and only while they are on screen.
 It saves nothing and sends nothing. The download checks sugarhouse.tech once
-a day for updates, and contacts Lemon Squeezy once when you enter a key. A copy
+a day for updates, and contacts Polar once when you enter a key. A copy
 built from source never connects to the internet.
 
 ## Credits

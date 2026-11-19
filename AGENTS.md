@@ -48,7 +48,7 @@ answer.
 | `PinPolicy`: unpinning closed windows, layering on app switch | `PinnedWindowTracker` |
 | `BadgeSchedule`, `BadgeOffsets`, `TitleBarSlotFinder.merge`: pin button timing and placement | `PinBadges`, `TitleBarSlot` |
 | `EventMapping`, `ScrollMath`: events and scrolling sent to a pinned window | `EventForwarder`, `AXScroller` |
-| `LicensePolicy`: the trial, and reading Lemon Squeezy's answer to a key | `Licensing` |
+| `LicensePolicy`: the trial, and reading Polar's answer to a key | `Licensing` |
 
 `Sources/JorvikKit` is shared code from the original app (permissions, launch
 at login, the menu bar icon).
