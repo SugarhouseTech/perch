@@ -43,7 +43,9 @@ struct BadgeOffsetSettings: View {
             HStack(spacing: 6) {
                 Image(nsImage: app.icon)
                     .frame(width: 16, height: 16)
+                    .accessibilityHidden(true)
                 Text(app.name).fontWeight(.medium)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer()
                 Button {
                     BadgeOffsets.remove(id)
@@ -76,6 +78,8 @@ struct BadgeOffsetSettings: View {
                         // draw a tick mark for every one.
                         Slider(value: distance, in: BadgeOffsets.range)
                             .frame(minWidth: 120)
+                            .accessibilityLabel("\(app.name) button position")
+                            .accessibilityValue("\(Int(distance.wrappedValue)) points from the right edge")
                         // Typed, for the same distance in several apps. Both
                         // controls share one binding, so they always agree.
                         TextField("", value: distance, format: .number.precision(.fractionLength(0)))

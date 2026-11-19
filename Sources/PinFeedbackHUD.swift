@@ -23,7 +23,16 @@ enum PinFeedbackHUD {
         show(text, over: targetFrame(windowID: windowID))
     }
 
+    /// "Perched" is read at a glance; "Unperched: allow Screen Recording"
+    /// needs time to read, and the notice can't be brought back.
+    nonisolated static func onScreenSeconds(for text: String) -> Double {
+        text.split(whereSeparator: \.isWhitespace).count <= 2 ? 1 : 2.5
+    }
+
     static func show(_ text: String, over frame: NSRect) {
+        // VoiceOver users never see the notice, and it is often the only
+        // sign the shortcut did anything, so it is spoken too.
+        Announce.say(text)
         let label = NSTextField(labelWithString: text)
         label.font = .systemFont(ofSize: 22, weight: .semibold)
         label.textColor = .white
@@ -50,7 +59,7 @@ enum PinFeedbackHUD {
         shown += 1
         let this = shown
         hideTask = Task {
-            try? await Task.sleep(for: .seconds(1))
+            try? await Task.sleep(for: .seconds(Self.onScreenSeconds(for: text)))
             guard !Task.isCancelled else { return }
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.1
@@ -70,6 +79,9 @@ enum PinFeedbackHUD {
         let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
         p.level = .screenSaver
+        // Named, so VoiceOver's window list doesn't show an untitled window;
+        // its text is announced as it appears.
+        p.title = "Perch notice"
         p.isOpaque = false
         p.backgroundColor = .clear
         p.hasShadow = true

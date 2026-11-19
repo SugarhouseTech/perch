@@ -245,6 +245,7 @@ private struct LicenseView: View {
 
             if state != .licensed {
                 TextField("License key", text: $key)
+                    .accessibilityLabel("License key")
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(activate)
                 if let error {
@@ -258,7 +259,7 @@ private struct LicenseView: View {
                     Button("Lost your key?") { licensing.openOrders() }
                         .buttonStyle(.link)
                     Spacer()
-                    Button("Activate", action: activate)
+                    Button(working ? "Activating\u{2026}" : "Activate", action: activate)
                         .keyboardShortcut(.defaultAction)
                         .disabled(working || LicensePolicy.normalizedKey(key).isEmpty)
                 }
@@ -283,6 +284,8 @@ private struct LicenseView: View {
         Task {
             error = await licensing.activate(key: key)?.message
             working = false
+            // The answer appears away from the field VoiceOver is on.
+            Announce.say(error ?? "Thank you! Perch is all yours on this Mac.")
         }
     }
 }

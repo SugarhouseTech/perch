@@ -447,6 +447,8 @@ private final class BadgePanel: NSPanel {
         isReleasedWhenClosed = false
         collectionBehavior = [.fullScreenAuxiliary, .transient, .ignoresCycle]
         contentView = BadgeView(pinned: pinned) { [weak self] in self?.onClick?() }
+        // Only the button inside is announced, not the panel as a window.
+        setAccessibilityElement(false)
     }
 
     override var canBecomeKey: Bool { false }
@@ -499,6 +501,16 @@ private final class BadgeView: NSView {
     private var pendingLabel: DispatchWorkItem?
 
     required init?(coder: NSCoder) { fatalError("not used") }
+
+    // A drawn view, so it says what it is: a button VoiceOver can name and
+    // press, rather than an unnamed shape in an untitled window.
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityLabel() -> String? { label }
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
+    }
 
     // The click must work while another app is active, without activating Perch.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

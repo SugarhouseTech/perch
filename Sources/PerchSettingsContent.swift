@@ -34,7 +34,7 @@ struct PerchSettingsContent: View {
     }
 
     /// Only the tick is green: green text is too faint to read on a light window.
-    private static var grantedLabel: some View {
+    fileprivate static var grantedLabel: some View {
         Label {
             Text("Granted")
         } icon: {
@@ -94,7 +94,10 @@ struct PerchSettingsContent: View {
                         .font(.settingsHelp)
                 }
             }
+            // The title alone as the label, and the help line as the hint,
+            // so VoiceOver reads both, in that order.
             .accessibilityLabel(Self.interactionTitle)
+            .accessibilityHint("Vertical scrolling in apps that support it through Accessibility.")
 
             Toggle("Show perched windows on every desktop", isOn: $pinToAllSpaces)
             .onChange(of: pinToAllSpaces) { _, _ in
@@ -114,42 +117,52 @@ struct PerchSettingsContent: View {
         MenuBarVisibilitySettings()
 
         Section("Permissions") {
-            LabeledContent {
-                if accessibility.isGranted {
-                    Self.grantedLabel
-                } else {
-                    Button(PerchPermissionActions.accessibilityButtonTitle(hasAsked: askedAccessibility),
-                           action: PerchPermissionActions.requestAccessibility)
-                }
-            } label: {
-                Text("Accessibility")
-                Text("Perch needs to identify windows, scroll, and bring windows forward.")
-                    .font(.settingsHelp)
+            PermissionRow(title: "Accessibility",
+                          help: "Perch needs to identify windows, scroll, and bring windows forward.",
+                          granted: accessibility.isGranted) {
+                Button(PerchPermissionActions.accessibilityButtonTitle(hasAsked: askedAccessibility),
+                       action: PerchPermissionActions.requestAccessibility)
             }
             // The Settings window is cached, so these watchers would otherwise poll for the
             // life of the app once Settings had been opened.
             .jorvikPollsWhileVisible(accessibility, screenRecording)
 
-            LabeledContent {
-                if screenRecording.isGranted {
-                    Self.grantedLabel
-                } else {
-                    Button("Grant Access") {
-                        // The prompt only ever appears once; after a denial this silently
-                        // records a request and returns false, so send them where they can
-                        // actually flip it.
-                        if !CGRequestScreenCaptureAccess() {
-                            JorvikPermissionWatcher.openSettings(pane: .screenRecording)
-                        }
+            PermissionRow(title: "Screen Recording",
+                          help: "Perch needs to see window contents to keep it on top.",
+                          granted: screenRecording.isGranted) {
+                Button("Grant Access") {
+                    // The prompt only ever appears once; after a denial this silently
+                    // records a request and returns false, so send them where they can
+                    // actually flip it.
+                    if !CGRequestScreenCaptureAccess() {
+                        JorvikPermissionWatcher.openSettings(pane: .screenRecording)
                     }
                 }
-            } label: {
-                Text("Screen Recording")
-                Text("Perch needs to see window contents to keep it on top.")
-                    .font(.settingsHelp)
             }
         }
 
         BadgeOffsetSettings(badgeControlsEnabled: badgePinned || badgeFocused)
+    }
+}
+
+/// A permission in Settings: what it is, why Perch needs it, and either
+/// "Granted" or the button that asks for it. A plain row, because
+/// LabeledContent names its button after the row, so VoiceOver read
+/// "Accessibility" for the button that grants it.
+private struct PermissionRow<Action: View>: View {
+    let title: String
+    let help: String
+    let granted: Bool
+    @ViewBuilder let action: Action
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(help).font(.settingsHelp)
+            }
+            Spacer()
+            if granted { PerchSettingsContent.grantedLabel } else { action }
+        }
     }
 }

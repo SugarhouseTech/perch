@@ -328,6 +328,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                   action: ignored ? nil : #selector(toggleFrontmost), keyEquivalent: "")
             item.isEnabled = !ignored
             item.representedObject = fw
+            // The title is cut to fit the menu; VoiceOver gets all of it.
+            if !ignored { item.setAccessibilityLabel("\(isPinned ? "Unperch" : "Perch") \(displayName)") }
             item.image = Self.robinMenuImage(perched: isPinned)
             // Shown so the shortcut can be learnt from here.
             if let key = shortcutKeyEquivalent {
@@ -354,6 +356,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.representedObject = pw.windowID
             item.image = Self.appMenuImage(pid: pw.ownerPID)
             item.toolTip = "Unperch"
+            // Out of its section, the bare window name doesn't say what
+            // choosing it does.
+            item.setAccessibilityLabel("Unperch \(pw.displayLabel)")
             menu.addItem(item)
         }
         let unperchAll = NSMenuItem(title: "Unperch All", action: #selector(unpinAllAction), keyEquivalent: "")

@@ -121,7 +121,9 @@ struct JorvikShortcutRecorder: View {
                      ? L10n.string("shortcut.needs_modifier",
                                    defaultValue: "Hold \u{2318}, \u{2303} or \u{2325}, or press an F key")
                      : L10n.string("shortcut.press", defaultValue: "Press shortcut\u{2026}"))
-                    .foregroundStyle(.orange)
+                    // Primary, not orange: this line says why a key was
+                    // refused, and orange on white is too faint to read.
+                    .fontWeight(.medium)
                 Button(L10n.string("shortcut.cancel", defaultValue: "Cancel")) {
                     stopRecording()
                 }
@@ -157,6 +159,8 @@ struct JorvikShortcutRecorder: View {
         isRecording = true
         needsModifier = false
         onRecordingChanged?(true)
+        // The Change button VoiceOver was on has just gone.
+        Announce.say("Press the new shortcut, or Escape to cancel.")
 
         let handleEvent = { (event: NSEvent) in
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -186,6 +190,7 @@ struct JorvikShortcutRecorder: View {
             let isFunctionKey = JorvikShortcutPanel.functionKeyCodes.contains(event.keyCode)
             guard isFunctionKey || flags.contains(.command) || flags.contains(.control) || flags.contains(.option) else {
                 needsModifier = true
+                Announce.say("Hold Command, Control or Option, or press an F key.")
                 return
             }
 
@@ -194,6 +199,7 @@ struct JorvikShortcutRecorder: View {
             modifiers = cleanFlags
             onChanged?()
             stopRecording()
+            Announce.say("Shortcut set to \(Self.spoken(JorvikShortcutPanel.displayString(keyCode: keyCode, modifiers: cleanFlags)))")
         }
 
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in

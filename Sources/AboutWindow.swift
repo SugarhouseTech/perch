@@ -152,6 +152,7 @@ private struct AboutView: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
+                .accessibilityAddTraits(.isHeader)
             Text(Self.thanksText)
                 .font(.callout)
                 .foregroundStyle(.secondary)

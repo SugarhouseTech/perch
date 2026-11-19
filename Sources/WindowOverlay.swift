@@ -200,7 +200,7 @@ class WindowOverlay: NSPanel {
         // Layer-hosting view: frames land straight on the layer as IOSurfaces,
         // no NSImage conversion.
         contentLayer.contentsGravity = .resize
-        let container = NSView(frame: NSRect(origin: .zero, size: frame.size))
+        let container = OverlayContentView(frame: NSRect(origin: .zero, size: frame.size))
         container.wantsLayer = true
         let hostedContent = NSView(frame: container.bounds)
         hostedContent.layer = contentLayer
@@ -208,6 +208,15 @@ class WindowOverlay: NSPanel {
         hostedContent.autoresizingMask = [.width, .height]
         container.addSubview(hostedContent)
         contentView = container
+        // For VoiceOver: what this copy is, and pressing it does what a click
+        // does (or retries, when it has stopped).
+        let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "a window"
+        title = "Perched copy of \(appName)"
+        container.label = title
+        container.onPress = { [weak self] in
+            guard let self else { return }
+            if self.life.captureState == .stopped { self.retryCapture() } else { self.activateRealWindow() }
+        }
 
         captureStatusView.wantsLayer = true
         captureStatusView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.78).cgColor
@@ -312,8 +321,12 @@ class WindowOverlay: NSPanel {
         }
     }
 
+    /// Whether the current stop has been announced, so it is said once.
+    private var announcedStop = false
+
     private func updateCaptureStatus() {
         let state = life.captureState
+        if state != .stopped { announcedStop = false }
         guard life.pinVisible, !life.outOfSight,
               state == .starting || state == .reconnecting || state == .stopped else {
             captureStatusView.isHidden = true
@@ -345,6 +358,12 @@ class WindowOverlay: NSPanel {
         case .stopped:
             captureStatusLabel.stringValue = "Capture stopped"
             captureRetryButton.isHidden = false
+            // Said once as it stops, for someone who can't see the copy:
+            // pressing the copy (VoiceOver's press) retries.
+            if !announcedStop {
+                announcedStop = true
+                Announce.say("A perched window stopped updating. Press it to retry.")
+            }
             captureStatusView.isHidden = false
         case .idle, .live, .paused:
             captureStatusView.isHidden = true
@@ -1347,5 +1366,21 @@ extension WindowOverlay: SCStreamOutput, SCStreamDelegate {
             // (display reconfigure) — retry while we're still pinned-visible.
             self.send(.streamFailed)
         }
+    }
+}
+
+/// The perched copy's content, as VoiceOver sees it: one button, named for
+/// the window it copies, that goes to the real window when pressed.
+private final class OverlayContentView: NSView {
+    var label = ""
+    var onPress: (() -> Void)?
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityLabel() -> String? { label }
+    override func accessibilityHelp() -> String? { "Goes to the real window." }
+    override func accessibilityPerformPress() -> Bool {
+        onPress?()
+        return true
     }
 }
