@@ -43,7 +43,7 @@ enum PinFeedbackHUD {
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
             NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = 0.3
+                ctx.duration = 0.1
                 p.animator().alphaValue = 0
             }, completionHandler: {
                 // Cancelling the task does not stop a fade already under way.
