@@ -279,7 +279,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(NSMenuItem.separator())
 
         #if PERCH_DIRECT
-        addDownloadItems(to: menu)
+        if let title = Licensing.shared.state.menuTitle {
+            let item = NSMenuItem(title: title, action: #selector(showLicense), keyEquivalent: "")
+            item.target = self
+            item.image = Self.symbol("key")
+            menu.addItem(item)
+            menu.addItem(NSMenuItem.separator())
+        }
         #endif
 
         let settingsItem = NSMenuItem(title: "Settings\u{2026}", action: #selector(openSettings), keyEquivalent: ",")
@@ -290,6 +296,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         aboutItem.target = self
         aboutItem.image = Self.symbol("info.circle")
         menu.addItem(aboutItem)
+        #if PERCH_DIRECT
+        // Sparkle checks at once, so no ellipsis.
+        let updateItem = NSMenuItem(title: "Check for Updates", action: #selector(checkForUpdates), keyEquivalent: "")
+        updateItem.target = self
+        updateItem.image = Self.symbol("arrow.triangle.2.circlepath")
+        menu.addItem(updateItem)
+        #endif
         let quitItem = NSMenuItem(title: "Quit Perch", action: #selector(quit), keyEquivalent: "q")
         quitItem.image = Self.symbol("power")
         menu.addItem(quitItem)
@@ -349,32 +362,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     #if PERCH_DIRECT
-    /// The trial and the way to buy, until a key is entered; then only the
-    /// update check.
-    private func addDownloadItems(to menu: NSMenu) {
-        let state = Licensing.shared.state
-        if state != .licensed {
-            let status = NSMenuItem(title: state.label, action: nil, keyEquivalent: "")
-            status.isEnabled = false
-            status.image = Self.symbol("clock")
-            menu.addItem(status)
-            let buy = NSMenuItem(title: "Buy Perch ($6)\u{2026}", action: #selector(buyPerch), keyEquivalent: "")
-            buy.target = self
-            buy.image = Self.symbol("cart")
-            menu.addItem(buy)
-            let enter = NSMenuItem(title: "Enter License Key\u{2026}", action: #selector(showLicense), keyEquivalent: "")
-            enter.target = self
-            enter.image = Self.symbol("key")
-            menu.addItem(enter)
-        }
-        let update = NSMenuItem(title: "Check for Updates\u{2026}", action: #selector(checkForUpdates), keyEquivalent: "")
-        update.target = self
-        update.image = Self.symbol("arrow.triangle.2.circlepath")
-        menu.addItem(update)
-        menu.addItem(NSMenuItem.separator())
-    }
-
-    @objc private func buyPerch() { Licensing.shared.openBuyPage() }
     @objc private func showLicense() { LicenseWindow.show() }
     @objc private func checkForUpdates() { Updater.checkForUpdates() }
     #endif

@@ -206,7 +206,7 @@ private struct LicenseView: View {
                         .accessibilityAddTraits(.isHeader)
                     Text(state == .licensed
                          ? "Thank you for buying Perch."
-                         : "Perch is $6, once. Your key is in your receipt email.")
+                         : "Your key is in your receipt email.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -223,7 +223,7 @@ private struct LicenseView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack {
-                    Button("Buy Perch\u{2026}") { licensing.openBuyPage() }
+                    Button("Buy Perch") { licensing.openBuyPage() }
                     Button("Lost your key?") { licensing.openOrders() }
                         .buttonStyle(.link)
                     Spacer()

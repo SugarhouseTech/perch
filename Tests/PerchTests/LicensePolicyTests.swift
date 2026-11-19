@@ -100,6 +100,19 @@ import Testing
         #expect(state.label == label)
     }
 
+    @Test(arguments: [
+        (LicenseState.trial(daysLeft: 12), "Buy Perch \u{00B7} 12 days left"),
+        (.trial(daysLeft: 1), "Buy Perch \u{00B7} 1 day left"),
+        (.expired, "Trial ended \u{00B7} Enter Key\u{2026}"),
+    ])
+    func oneMenuRowUntilBought(state: LicenseState, title: String) {
+        #expect(state.menuTitle == title)
+    }
+
+    @Test func noMenuRowOnceBought() {
+        #expect(LicenseState.licensed.menuTitle == nil)
+    }
+
     @Test(arguments: [(204, true), (404, true), (422, false), (500, false), (0, false)])
     func readsTheDeactivateAnswer(status: Int, gone: Bool) {
         #expect(LicensePolicy.deactivated(status: status) == gone)

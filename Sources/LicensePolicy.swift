@@ -14,6 +14,16 @@ nonisolated enum LicenseState: Equatable, Sendable {
         case .trial(let days): days == 1 ? "Trial: 1 day left" : "Trial: \(days) days left"
         }
     }
+
+    /// The one menu row the download adds while unbought; none once bought.
+    /// It opens the licence window, where buying and entering a key both are.
+    var menuTitle: String? {
+        switch self {
+        case .licensed: nil
+        case .expired: "Trial ended \u{00B7} Enter Key\u{2026}"
+        case .trial(let days): "Buy Perch \u{00B7} \(days == 1 ? "1 day" : "\(days) days") left"
+        }
+    }
 }
 
 /// A Polar key that has been activated on this Mac. The activation ID is
