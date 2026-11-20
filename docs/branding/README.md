@@ -1,7 +1,9 @@
 # Perch's icons
 
-Perch's mark is a slim robin, side on, with an orange breast: in flight while
-nothing is perched, settled on a branch while something is.
+Perch's mark is a robin, side on and facing left, with an orange breast: in
+flight while nothing is perched, settled on a branch while something is. It
+faces left because the perch button sits at the right of a title bar, so the
+bird looks along the bar towards it.
 
 | What | Where it lives | How it is made |
 |---|---|---|
@@ -17,7 +19,8 @@ SVG (`M`, `L`, `C`, `Z`, absolute coordinates only). Each has:
 
 - `outline`: the whole bird, filled in the menu bar's ink.
 - `breast`: the orange patch, filled in `MenuBarGlyph.breast`.
-- `cut`: the thin line between head and wing, cut out of the bird.
+- `cut`: a line cut out of the bird (neither bird uses one now; the perched
+  bird's gaps are spaces between its pieces).
 - `eye`: a small circle, cut out.
 - `feet`: the perched bird's legs and branch, stroked.
 
@@ -34,8 +37,10 @@ To change a shape:
 3. Run the preview again, and check the real-size row: the bird has to read
    at 16 points.
 
-The traced original is `reference/menubar-robin.png`: OpenAI GPT-5.4 Image 2's
-"orange breast" row, from the third round of exploration below.
+The original is `reference/menubar-robin.png`: Google Gemini Nano Banana 2.1's
+"orange breast" row from the third round of exploration below, facing right
+as it was generated. Its outlines were fitted with smoothed contours
+simplified to a few dozen points, then mirrored (x becomes 24 − x).
 
 ## The app icon
 
@@ -98,5 +103,8 @@ chat completions API (`modalities: ["image", "text"]`):
 5. The chosen design redrawn as full-bleed final art, several takes, compared
    through the real rounded-square mask at Dock size and at 32 pixels.
 
-The chosen glyph was then traced by hand as the paths above, so it is crisp
-at every size and costs nothing to draw.
+The glyph first chosen, OpenAI GPT-5.4 Image 2's slim robin, was too thin to
+read as a bird at 16 points, in the menu bar and on the buttons. In
+November 2026 it was replaced by Nano Banana's rounder robin from the same
+round, turned to face left. Either way the glyph is vector paths, so it is
+crisp at every size and costs nothing to draw.
